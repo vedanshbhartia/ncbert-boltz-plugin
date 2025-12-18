@@ -14,14 +14,50 @@ logging.basicConfig(
 )
 
 # ============================================================================
+# Configuration Loading
+# ============================================================================
+
+def load_config(config_path: Optional[Path] = None) -> Dict:
+    """
+    Load configuration from YAML file
+
+    Args:
+        config_path: Path to config file (default: config.yaml in same directory as script)
+
+    Returns:
+        Dictionary with configuration values
+    """
+    if config_path is None:
+        config_path = Path(__file__).parent / "config.yaml"
+
+    config = {
+        'cache_dir': None,
+        'target_pdb_path': None,
+        'use_msa_server': True,
+        'diffusion_samples': 5,
+        'recycling_steps': 10,
+        'work_dir': 'boltz_modified_results'
+    }
+
+    if config_path.exists():
+        with open(config_path, 'r') as f:
+            loaded_config = yaml.safe_load(f)
+            if loaded_config:
+                config.update(loaded_config)
+
+    return config
+
+# ============================================================================
 # Configuration Constants
 # ============================================================================
 
-# Default cache directory for HPC environments (set to None for local machines)
-DEFAULT_CACHE_DIR = "/scratch/vb1467/.cache"
-
-# Example target PDB path (modify as needed)
+# Default values (can be overridden by config file)
+DEFAULT_CACHE_DIR = None
 DEFAULT_TARGET_PDB = None
+DEFAULT_USE_MSA_SERVER = True
+DEFAULT_DIFFUSION_SAMPLES = 5
+DEFAULT_RECYCLING_STEPS = 10
+DEFAULT_WORK_DIR = "boltz_modified_results"
 
 # Mapping from 1-letter to 3-letter standard amino acid codes
 ONE_TO_THREE_AA = {
@@ -863,7 +899,10 @@ class ModifiedSequenceBoltzPipeline:
 
 def main():
     """Main function with example usage"""
-    
+
+    # Load configuration
+    config = load_config()
+
     # Example sequence from the user
     example_sequence = """
 RGDG[DIL]GCGVSFKKYHGWA
@@ -877,19 +916,21 @@ AYSGQGTGRSG[ARG]DVVLHD
 FGDRRGYGIGYDQN[YCM]NEF
 GGPFQGGGR[DTH]HQYYVA[CSO]T
 """.strip()
-    
+
     # Initialize pipeline
     pipeline = ModifiedSequenceBoltzPipeline(
-        work_dir=Path("boltz_modified_results"),
-        use_msa_server=True
+        work_dir=Path(config['work_dir']),
+        boltz_cache=config['cache_dir'],
+        use_msa_server=config['use_msa_server']
     )
-    
-    # Example target PDB (uncomment to use)
-    # target_pdb = Path("target.pdb")
-    # if not target_pdb.exists():
-    #     logging.warning("No target PDB found. Running without target.")
-    #     target_pdb = None
-    target_pdb = DEFAULT_TARGET_PDB or Path("/home/vedansh/Downloads/SA474935_cand1_backbone.pdb")
+
+    # Get target PDB from config
+    target_pdb = None
+    if config['target_pdb_path']:
+        target_pdb = Path(config['target_pdb_path'])
+        if not target_pdb.exists():
+            logging.warning(f"Target PDB not found: {target_pdb}. Running without target.")
+            target_pdb = None
     
     print("="*80)
     print("PARSED SEQUENCES WITH MODIFICATIONS")

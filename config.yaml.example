@@ -1,0 +1,16 @@
+# Configuration file for Boltz predictions
+# Copy this file to config.yaml and modify as needed
+
+# Cache directory for HPC environments (set to null for default)
+cache_dir: null
+
+# Target PDB file path (set to null if not using a target)
+target_pdb_path: null
+
+# Boltz runner settings
+use_msa_server: true
+diffusion_samples: 5
+recycling_steps: 10
+
+# Output directory settings
+work_dir: "boltz_modified_results"
