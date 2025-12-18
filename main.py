@@ -1,13 +1,4 @@
 #!/usr/bin/env python3
-"""
-Modified Sequence to Boltz Pipeline
-Parses sequences with CCD modifications in bracket notation and runs Boltz predictions
-
-Format: SEQUENCE[CCD]SEQUENCE[CCD]
-Example: FGPLPNGEILDTYGHDT[CME]
-
-Author: Modular design for reusability
-"""
 
 import re
 import yaml
@@ -21,6 +12,26 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
+
+# ============================================================================
+# Configuration Constants
+# ============================================================================
+
+# Default cache directory for HPC environments (set to None for local machines)
+DEFAULT_CACHE_DIR = "/scratch/vb1467/.cache"
+
+# Example target PDB path (modify as needed)
+DEFAULT_TARGET_PDB = None
+
+# Mapping from 1-letter to 3-letter standard amino acid codes
+ONE_TO_THREE_AA = {
+    'A': 'ALA', 'C': 'CYS', 'D': 'ASP', 'E': 'GLU',
+    'F': 'PHE', 'G': 'GLY', 'H': 'HIS', 'I': 'ILE',
+    'K': 'LYS', 'L': 'LEU', 'M': 'MET', 'N': 'ASN',
+    'P': 'PRO', 'Q': 'GLN', 'R': 'ARG', 'S': 'SER',
+    'T': 'THR', 'V': 'VAL', 'W': 'TRP', 'Y': 'TYR',
+    'X': 'UNK', 'B': 'ASX', 'Z': 'GLX'
+}
 
 # ============================================================================
 # MODULE 1: CCD Code Mappings
@@ -346,22 +357,12 @@ class PDBParser:
 
                     # If entity has existing sequence, process it
                     if ent.full_sequence and convert_to_standard:
-                        # Mapping from 1-letter to 3-letter standard codes
-                        one_to_three = {
-                            'A': 'ALA', 'C': 'CYS', 'D': 'ASP', 'E': 'GLU',
-                            'F': 'PHE', 'G': 'GLY', 'H': 'HIS', 'I': 'ILE',
-                            'K': 'LYS', 'L': 'LEU', 'M': 'MET', 'N': 'ASN',
-                            'P': 'PRO', 'Q': 'GLN', 'R': 'ARG', 'S': 'SER',
-                            'T': 'THR', 'V': 'VAL', 'W': 'TRP', 'Y': 'TYR',
-                            'X': 'UNK', 'B': 'ASX', 'Z': 'GLX'
-                        }
-
                         for res_name in ent.full_sequence:
                             if res_name in CCD_TO_BASE_AA:
                                 # Convert to standard 1-letter code
                                 standard_aa = CCD_TO_BASE_AA[res_name]
                                 # Convert to 3-letter code for SEQRES
-                                standard_3letter = one_to_three.get(standard_aa, 'UNK')
+                                standard_3letter = ONE_TO_THREE_AA.get(standard_aa, 'UNK')
                                 seq_list.append(standard_3letter)
                                 logging.info(f"  Converted {res_name} -> {standard_3letter} ({standard_aa})")
                             else:
@@ -374,16 +375,6 @@ class PDBParser:
 
                     # Otherwise, extract from residues (original behavior)
                     if not ent.full_sequence:
-                        # Mapping from 1-letter to 3-letter standard codes
-                        one_to_three = {
-                            'A': 'ALA', 'C': 'CYS', 'D': 'ASP', 'E': 'GLU',
-                            'F': 'PHE', 'G': 'GLY', 'H': 'HIS', 'I': 'ILE',
-                            'K': 'LYS', 'L': 'LEU', 'M': 'MET', 'N': 'ASN',
-                            'P': 'PRO', 'Q': 'GLN', 'R': 'ARG', 'S': 'SER',
-                            'T': 'THR', 'V': 'VAL', 'W': 'TRP', 'Y': 'TYR',
-                            'X': 'UNK', 'B': 'ASX', 'Z': 'GLX'
-                        }
-
                         for model in st:
                             for chain in model:
                                 for res in chain:
@@ -395,7 +386,7 @@ class PDBParser:
                                         # Convert non-canonical to standard if requested
                                         if convert_to_standard and res_name in CCD_TO_BASE_AA:
                                             standard_aa = CCD_TO_BASE_AA[res_name]
-                                            standard_3letter = one_to_three.get(standard_aa, 'UNK')
+                                            standard_3letter = ONE_TO_THREE_AA.get(standard_aa, 'UNK')
                                             seq_list.append(standard_3letter)
                                             logging.info(f"  Converted {res_name} -> {standard_3letter} ({standard_aa})")
                                         else:
@@ -406,16 +397,6 @@ class PDBParser:
 
             # Also convert ATOM records if converting to standard
             if convert_to_standard:
-                # Mapping from 1-letter to 3-letter standard codes
-                one_to_three = {
-                    'A': 'ALA', 'C': 'CYS', 'D': 'ASP', 'E': 'GLU',
-                    'F': 'PHE', 'G': 'GLY', 'H': 'HIS', 'I': 'ILE',
-                    'K': 'LYS', 'L': 'LEU', 'M': 'MET', 'N': 'ASN',
-                    'P': 'PRO', 'Q': 'GLN', 'R': 'ARG', 'S': 'SER',
-                    'T': 'THR', 'V': 'VAL', 'W': 'TRP', 'Y': 'TYR',
-                    'X': 'UNK', 'B': 'ASX', 'Z': 'GLX'
-                }
-
                 # Convert ATOM records
                 for model in st:
                     for chain in model:
@@ -423,7 +404,7 @@ class PDBParser:
                             if res.is_water(): continue
                             if res.name in CCD_TO_BASE_AA:
                                 standard_aa = CCD_TO_BASE_AA[res.name]
-                                standard_3letter = one_to_three.get(standard_aa, 'UNK')
+                                standard_3letter = ONE_TO_THREE_AA.get(standard_aa, 'UNK')
                                 old_name = res.name
                                 res.name = standard_3letter
                                 logging.info(f"  Converted ATOM record: {old_name} -> {standard_3letter}")
@@ -610,12 +591,12 @@ class BoltzRunner:
     
     def __init__(
         self,
-        cache_dir: str = "/scratch/vb1467/.cache",
+        cache_dir: Optional[str] = None,
         use_msa_server: bool = True,
         diffusion_samples: int = 5,
         recycling_steps: int = 10
     ):
-        self.cache_dir = cache_dir
+        self.cache_dir = cache_dir if cache_dir is not None else DEFAULT_CACHE_DIR
         self.use_msa_server = use_msa_server
         self.diffusion_samples = diffusion_samples
         self.recycling_steps = recycling_steps
@@ -716,23 +697,23 @@ class ModifiedSequenceBoltzPipeline:
         self,
         work_dir: Path = Path("boltz_modified_sequences"),
         ccd_mapping: Optional[Dict[str, str]] = None,
-        boltz_cache: str = "/scratch/vb1467/.cache",
+        boltz_cache: Optional[str] = None,
         use_msa_server: bool = True
     ):
         self.work_dir = Path(work_dir)
         self.work_dir.mkdir(exist_ok=True)
-        
+
         # Create subdirectories
         self.yaml_dir = self.work_dir / "yaml_inputs"
         self.predictions_dir = self.work_dir / "predictions"
         self.yaml_dir.mkdir(exist_ok=True)
         self.predictions_dir.mkdir(exist_ok=True)
-        
+
         # Initialize modules
         self.parser = ModifiedSequenceParser(ccd_mapping)
         self.yaml_gen = BoltzInputGenerator()
         self.runner = BoltzRunner(
-            cache_dir=boltz_cache,
+            cache_dir=boltz_cache if boltz_cache is not None else DEFAULT_CACHE_DIR,
             use_msa_server=use_msa_server
         )
     
@@ -908,7 +889,7 @@ GGPFQGGGR[DTH]HQYYVA[CSO]T
     # if not target_pdb.exists():
     #     logging.warning("No target PDB found. Running without target.")
     #     target_pdb = None
-    target_pdb = Path("/home/vedansh/Downloads/SA474935_cand1_backbone.pdb")
+    target_pdb = DEFAULT_TARGET_PDB or Path("/home/vedansh/Downloads/SA474935_cand1_backbone.pdb")
     
     print("="*80)
     print("PARSED SEQUENCES WITH MODIFICATIONS")
