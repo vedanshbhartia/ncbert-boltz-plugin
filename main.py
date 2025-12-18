@@ -58,7 +58,7 @@ ONE_TO_THREE_AA = {
 }
 
 # ============================================================================
-# MODULE 1: CCD Code Mappings
+# CCD Code Mappings
 # ============================================================================
 
 CCD_TO_BASE_AA = {
@@ -107,9 +107,6 @@ CCD_TO_BASE_AA = {
     'XAA': 'X',
 }
 
-# ============================================================================
-# MODULE 2: Sequence Parsing
-# ============================================================================
 
 class ModifiedSequenceParser:
     """Parse sequences with CCD modifications in bracket notation"""
@@ -169,10 +166,6 @@ class ModifiedSequenceParser:
                 sequences.append((seq, mods))
         
         return sequences
-
-# ============================================================================
-# MODULE 2.5: PDB Parsing
-# ============================================================================
 
 class PDBParser:
     """PDB parser to extract sequences using Gemmi"""
@@ -352,9 +345,7 @@ class PDBParser:
             logging.error(f"Error ensuring SEQRES for {pdb_path}: {e}")
             raise RuntimeError(f"Failed to process PDB file {pdb_path}: {e}") from e
 
-# ============================================================================
-# MODULE 3: Boltz YAML Generation
-# ============================================================================
+
 
 class BoltzInputGenerator:
     """Generate Boltz-compatible YAML input files"""
@@ -485,9 +476,6 @@ class BoltzInputGenerator:
         
         logging.info(f"Created YAML input: {output_path}")
 
-# ============================================================================
-# MODULE 4: Boltz Execution
-# ============================================================================
 
 class BoltzRunner:
     """Run Boltz predictions"""
@@ -581,9 +569,6 @@ class BoltzRunner:
         
         return results
 
-# ============================================================================
-# MODULE 5: Complete Pipeline
-# ============================================================================
 
 class ModifiedSequenceBoltzPipeline:
     """Complete pipeline: Parse → Generate YAML → Run Boltz"""
@@ -709,9 +694,6 @@ class ModifiedSequenceBoltzPipeline:
             cyclic=cyclic
         )
 
-# ============================================================================
-# MAIN / EXAMPLES
-# ============================================================================
 
 def main():
     """Main function with example usage"""
