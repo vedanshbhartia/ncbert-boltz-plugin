@@ -1,3 +1,2 @@
 pyyaml
 gemmi
-boltz

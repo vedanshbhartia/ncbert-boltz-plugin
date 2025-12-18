@@ -18,6 +18,13 @@ Edit `config.yaml` to set paths and parameters:
 pip install -r requirements.txt
 ```
 
+For installing boltz, check [https://github.com/jwohlwend/boltz](https://github.com/jwohlwend/boltz)
+Installing the latest version:
+```
+git clone https://github.com/jwohlwend/boltz.git
+cd boltz; pip install -e .[cuda]
+```
+
 ## Usage
 
 ### As a script
