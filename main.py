@@ -571,7 +571,7 @@ class BoltzRunner:
 
 
 class ModifiedSequenceBoltzPipeline:
-    """Complete pipeline: Parse → Generate YAML → Run Boltz"""
+    """Complete pipeline: Parse > Generate YAML > Run Boltz"""
     
     def __init__(
         self,
@@ -695,23 +695,18 @@ class ModifiedSequenceBoltzPipeline:
         )
 
 
-def main():
-    """Main function with example usage"""
-
+def run_pipeline_with_sequences(
+    sequence_string: str,
+    sequence_names: Optional[List[str]] = None,
+    target_pdb_path: Optional[Path] = None
+):
+    """
+    Args:
+        sequence_string: Multi-line string of sequences with modifications in bracket notation
+        sequence_names: Optional list of names for each sequence
+        target_pdb_path: Optional path to backbone/target PDB file
+    """
     config = load_config()
-
-    example_sequence = """
-RGDG[DIL]GCGVSFKKYHGWA
-CGSKFLGGHAHYTGKN[CSS]A
-AGDNQGHGSMDLTN[CGU]CCV
-CGDTKGMGK[DLY]GQSVDCCT
-HGNGKCQGAA[DTY]GGTVNGW
-GGPNYVMGAGTPHAVWNF
-AYDDKGHGC[PCA]GKRDWHHC
-AYSGQGTGRSG[ARG]DVVLHD
-FGDRRGYGIGYDQN[YCM]NEF
-GGPFQGGGR[DTH]HQYYVA[CSO]T
-""".strip()
 
     pipeline = ModifiedSequenceBoltzPipeline(
         work_dir=Path(config['work_dir']),
@@ -720,8 +715,8 @@ GGPFQGGGR[DTH]HQYYVA[CSO]T
     )
 
     target_pdb = None
-    if config['target_pdb_path']:
-        target_pdb = Path(config['target_pdb_path'])
+    if target_pdb_path:
+        target_pdb = Path(target_pdb_path)
         if not target_pdb.exists():
             logging.warning(f"Target PDB not found: {target_pdb}. Running without target.")
             target_pdb = None
@@ -730,7 +725,7 @@ GGPFQGGGR[DTH]HQYYVA[CSO]T
     print("PARSED SEQUENCES WITH MODIFICATIONS")
     print("="*80)
 
-    sequences = pipeline.parser.parse_string(example_sequence)
+    sequences = pipeline.parser.parse_string(sequence_string)
     for i, (seq, mods) in enumerate(sequences):
         print(f"\nSequence {i+1}:")
         print(f"  Length: {len(seq)}")
@@ -744,10 +739,14 @@ GGPFQGGGR[DTH]HQYYVA[CSO]T
     print("RUNNING BOLTZ PREDICTIONS")
     print("="*80)
 
-    seq_strings = example_sequence.strip().split('\n')
+    seq_strings = sequence_string.strip().split('\n')
+
+    if sequence_names is None:
+        sequence_names = [f"SA474935_cand1_pred_{i+1}" for i in range(len(seq_strings))]
+
     results = pipeline.process_multiple_sequences(
         seq_strings,
-        names=[f"SA474935_cand1_pred_{i+1}" for i in range(len(seq_strings))],
+        names=sequence_names,
         run_boltz=True,
         target_pdb_path=target_pdb
     )
@@ -767,6 +766,26 @@ GGPFQGGGR[DTH]HQYYVA[CSO]T
             print(f"  ✓ {name}: {result}")
         else:
             print(f"  ✗ {name}: Failed")
+
+
+def main():
+    config = load_config()
+
+    example_sequence = """
+RGDG[DIL]GCGVSFKKYHGWA
+CGSKFLGGHAHYTGKN[CSS]A
+AGDNQGHGSMDLTN[CGU]CCV
+CGDTKGMGK[DLY]GQSVDCCT
+HGNGKCQGAA[DTY]GGTVNGW
+GGPNYVMGAGTPHAVWNF
+AYDDKGHGC[PCA]GKRDWHHC
+AYSGQGTGRSG[ARG]DVVLHD
+FGDRRGYGIGYDQN[YCM]NEF
+GGPFQGGGR[DTH]HQYYVA[CSO]T
+""".strip()
+
+    target_pdb = Path(config['target_pdb_path']) if config['target_pdb_path'] else None
+    run_pipeline_with_sequences(example_sequence, target_pdb_path=target_pdb)
 
 if __name__ == "__main__":
     main()
