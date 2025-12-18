@@ -36,8 +36,20 @@ python main.py
 ### As a module
 
 ```python
-from main import ModifiedSequenceBoltzPipeline, load_config
+from main import run_pipeline_with_sequences, ModifiedSequenceBoltzPipeline, load_config
 
+# Option 1: Use the high-level pipeline function
+sequence_string = """
+RGDG[MSE]GCGV
+AGDN[CSS]CCV
+"""
+run_pipeline_with_sequences(
+    sequence_string,
+    sequence_names=["peptide_1", "peptide_2"],
+    target_pdb_path=Path("target.pdb")  # Optional
+)
+
+# Option 2: Use the pipeline class directly for more control
 config = load_config()
 pipeline = ModifiedSequenceBoltzPipeline(
     work_dir=config['work_dir'],
@@ -64,6 +76,14 @@ RGDG[MSE]GCGV  # Selenomethionine at position 5
 Supported modifications are defined in the `CCD_TO_BASE_AA` dictionary.
 
 ## Functions
+
+### `run_pipeline_with_sequences(sequence_string, sequence_names=None, target_pdb_path=None)`
+Run the complete pipeline with given sequences. This is the high-level function that handles configuration loading, pipeline setup, sequence parsing, Boltz prediction, and result reporting.
+
+**Args:**
+- `sequence_string`: Multi-line string of sequences with modifications in bracket notation
+- `sequence_names`: Optional list of names for each sequence (defaults to auto-generated names)
+- `target_pdb_path`: Optional path to target PDB file for docking
 
 ### `load_config(config_path=None)`
 Loads configuration from YAML file. Returns dict with config values.
