@@ -454,7 +454,8 @@ class BoltzInputGenerator:
         chain_id: str = 'A',
         msa_path: Optional[str] = None,
         target_pdb_path: Optional[Path] = None,
-        target_chain_id: str = 'A'
+        target_chain_id: str = 'A',
+        cyclic: bool = True
     ) -> Dict:
         """
         Create YAML structure for a single protein (peptide) potentially docked to a target
@@ -508,6 +509,9 @@ class BoltzInputGenerator:
              # If we want to force empty for peptide (often good for short peptides), we can do that.
              # For now leaving it to default (which might require MSA or use server)
              pass
+        
+        if cyclic:
+            peptide_entry['cyclic'] = True
 
         sequences_list.append({'protein': peptide_entry})
         
@@ -881,16 +885,16 @@ def main():
     
     # Example sequence from the user
     example_sequence = """
-FGPLPNGEILDTYGHDT[CME]
-CG[MLY]LPGGWNSITFGVGNR
-GGPMADGEL[FME]DPRG[ABA]GVW
-HGPVAEGKIDF[TPO]AGHGGD
-CGDME[MLY]GEVA[OCS]SLGWGFY
-[CSD]GAMPGGMDPDPSGYG[DTH]H
-NGYPPGGMWQFPMGYGAH
-NGPFKSSEFVLTGGAGGF
-WGPLDKGVSCDPNG[MLY]GCQ
-FGYLNNYHWFNGAGRGGY
+RGDG[DIL]GCGVSFKKYHGWA
+CGSKFLGGHAHYTGKN[CSS]A
+AGDNQGHGSMDLTN[CGU]CCV
+CGDTKGMGK[DLY]GQSVDCCT
+HGNGKCQGAA[DTY]GGTVNGW
+GGPNYVMGAGTPHAVWNF
+AYDDKGHGC[PCA]GKRDWHHC
+AYSGQGTGRSG[ARG]DVVLHD
+FGDRRGYGIGYDQN[YCM]NEF
+GGPFQGGGR[DTH]HQYYVA[CSO]T
 """.strip()
     
     # Initialize pipeline
@@ -904,7 +908,7 @@ FGYLNNYHWFNGAGRGGY
     # if not target_pdb.exists():
     #     logging.warning("No target PDB found. Running without target.")
     #     target_pdb = None
-    target_pdb = Path("/home/vedansh/Downloads/SA2989311_cand2_backbone.pdb")
+    target_pdb = Path("/home/vedansh/Downloads/SA474935_cand1_backbone.pdb")
     
     print("="*80)
     print("PARSED SEQUENCES WITH MODIFICATIONS")
@@ -929,7 +933,7 @@ FGYLNNYHWFNGAGRGGY
     seq_strings = example_sequence.strip().split('\n')
     results = pipeline.process_multiple_sequences(
         seq_strings,
-        names=[f"SA2989311_cand2_pred_{i+1}" for i in range(len(seq_strings))],
+        names=[f"SA474935_cand1_pred_{i+1}" for i in range(len(seq_strings))],
         run_boltz=True,
         target_pdb_path=target_pdb
     )
