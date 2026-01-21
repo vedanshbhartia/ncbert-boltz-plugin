@@ -56,13 +56,14 @@ def main():
             sys.executable,
             str(script_path),
             str(cif_file),
-            "--mode", "cartesian" # Use cartesian to fix geometry issues
+            "--mode", "cartesian", # Use cartesian to fix geometry issues
+            "--cyclic"
         ]
         
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
             logging.info(f"Successfully processed {cif_file.name}")
-            # logging.debug(result.stdout)
+            logging.info(result.stdout)
         except subprocess.CalledProcessError as e:
             logging.error(f"Failed to process {cif_file.name}")
             logging.error(f"Error output: {e.stderr}")

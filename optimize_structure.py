@@ -25,6 +25,132 @@ def init_pyrosetta():
     cmd_line_options = "-mute core.chemical -mute core.scoring -corrections::beta_nov16"
     pyrosetta.init(cmd_line_options)
 
+def run_cyclic_optimization(
+    input_path: Path, 
+    output_path: Path, 
+    constrain: bool = True
+):
+    import pyrosetta
+    from pyrosetta import rosetta
+    from pyrosetta.rosetta.core.select.residue_selector import ChainSelector, NotResidueSelector, NeighborhoodResidueSelector, AndResidueSelector
+    from pyrosetta.rosetta.protocols.relax import FastRelax
+    from pyrosetta.rosetta.core.kinematics import MoveMap
+    
+    print(f"Loading {input_path} for CYCLIC optimization...")
+    try:
+        pose = pyrosetta.pose_from_file(str(input_path))
+    except Exception as e:
+        logging.error(f"Failed to load structure: {e}")
+        sys.exit(1)
+
+    # 1. IDENTIFY CHAINS
+    # Assume last chain is peptide
+    n_chains = pose.conformation().num_chains()
+    peptide_chain_id = n_chains
+    print(f"Assuming Chain {peptide_chain_id} is the peptide.")
+    
+    # 2. SELECTORS
+    pep_sel = ChainSelector(peptide_chain_id)
+    prot_sel = NotResidueSelector(pep_sel)
+    # Interface: Protein residues within 8A of peptide
+    interface_sel = AndResidueSelector(prot_sel, NeighborhoodResidueSelector(pep_sel, 8.0, False))
+    
+    # Get residue indices (1-based)
+    # Note: apply returns a vector1_bool, which is 1-indexed in internal access but mapped to list here
+    # We iterate 1..total_residue
+    total_res = pose.total_residue()
+    pep_mask = pep_sel.apply(pose)
+    interface_mask = interface_sel.apply(pose)
+    
+    pep_resi = [i for i in range(1, total_res+1) if pep_mask[i]]
+    interface_resi = [i for i in range(1, total_res+1) if interface_mask[i]]
+    
+    if not pep_resi:
+        logging.error("No residues found in the assumed peptide chain!")
+        sys.exit(1)
+        
+    pep_start = pep_resi[0]
+    pep_end = pep_resi[-1]
+    print(f"Peptide residues: {pep_start}-{pep_end}")
+    print(f"Interface residues: {len(interface_resi)} residues")
+
+    # 3. SETUP CYCLIZATION
+    print("Applying cyclic constraints (DeclareBond)...")
+    # Remove termini variants
+    try:
+        rosetta.core.pose.remove_variant_type_from_pose_residue(pose, rosetta.core.chemical.LOWER_TERMINUS_VARIANT, pep_start)
+        rosetta.core.pose.remove_variant_type_from_pose_residue(pose, rosetta.core.chemical.UPPER_TERMINUS_VARIANT, pep_end)
+    except:
+        logging.warning("Could not remove termini variants (might not exist).")
+
+    # Declare Bond (Connect C of end to N of start)
+    # Expert XML: res1=start atom1=N res2=end atom2=C
+    print(f"Bonding {pep_start}:N to {pep_end}:C")
+    try:
+        pose.conformation().declare_chemical_bond(pep_start, "N", pep_end, "C")
+    except Exception as e:
+        logging.error(f"Manual bond declaration failed: {e}")
+        # Proceeding might be fatal, but let's see.
+        
+    # Add Cutpoints for Relax (Constraint scoring)
+    # Expert XML: Start -> CUTPOINT_UPPER, End -> CUTPOINT_LOWER
+    # This matches the logic that the "gap" is between End(Lower) and Start(Upper) in the cyclic sense effectively?
+    # Actually, if we connect End->Start. End is residues i. Start is i+1.
+    # So End is Lower, Start is Upper.
+    try:
+        rosetta.core.pose.add_variant_type_to_pose_residue(pose, rosetta.core.chemical.CUTPOINT_UPPER, pep_start)
+        rosetta.core.pose.add_variant_type_to_pose_residue(pose, rosetta.core.chemical.CUTPOINT_LOWER, pep_end)
+    except Exception as e:
+        logging.warning(f"Failed to add cutpoint variants: {e}")
+
+    # 4. MOVEMAP
+    mm = MoveMap()
+    mm.set_bb(False); mm.set_chi(False); mm.set_jump(False)
+    
+    # Allow Peptide BB/Chi
+    for r in pep_resi:
+        mm.set_bb(r, True)
+        mm.set_chi(r, True)
+        
+    # Allow Interface Chi
+    for r in interface_resi:
+        mm.set_chi(r, True)
+        
+    # 5. SCORE FUNCTION
+    sf = pyrosetta.create_score_function("beta_nov16")
+    sf.set_weight(rosetta.core.scoring.chainbreak, 100.0)
+    sf.set_weight(rosetta.core.scoring.hbond_lr_bb, 6.0)
+    sf.set_weight(rosetta.core.scoring.hbond_sr_bb, 6.0)
+    
+    # 6. RUN FASTRELAX
+    print("Running FastRelax with Cyclic Constraints...")
+    fr = FastRelax()
+    fr.set_scorefxn(sf)
+    fr.set_movemap(mm)
+    if constrain:
+        fr.constrain_relax_to_start_coords(True)
+        fr.coord_constrain_sidechains(True)
+    
+    fr.apply(pose)
+    
+    # 7. CLEANUP & SAVE
+    # Remove cutpoints
+    try:
+        rosetta.core.pose.remove_variant_type_from_pose_residue(pose, rosetta.core.chemical.CUTPOINT_UPPER, pep_start)
+        rosetta.core.pose.remove_variant_type_from_pose_residue(pose, rosetta.core.chemical.CUTPOINT_LOWER, pep_end)
+    except:
+        pass
+        
+    final_energy = sf(pose)
+    print(f"Final Score: {final_energy:.2f}")
+    
+    print(f"Saving to {output_path}...")
+    if output_path.suffix.lower() == '.cif':
+        pose.dump_pdb(str(output_path.with_suffix('.pdb')))
+        # Conversion logic same as above if needed, but keeping it simple for now
+    else:
+        pose.dump_pdb(str(output_path))
+
 def run_optimization(
     input_path: Path, 
     output_path: Path, 
@@ -48,7 +174,7 @@ def run_optimization(
     # Use cartesian version if we are doing cartesian relax
     score_name = "beta_nov16_cart" if mode == 'cartesian' else "beta_nov16"
     sf = pyrosetta.create_score_function(score_name)
-
+    
     # Setup Constraints (highly recommended to keep structure close to input)
     if constrain:
         print("Applying coordinate constraints...")
@@ -153,6 +279,7 @@ def main():
     parser.add_argument("--output", "-o", help="Output PDB file path")
     parser.add_argument("--mode", choices=['minimize', 'relax', 'cartesian'], default='cartesian',
                       help="Optimization mode: 'minimize', 'relax' (torsion), or 'cartesian' (fixes bond lengths)")
+    parser.add_argument("--cyclic", action="store_true", help="Enable cyclic peptide optimization (expert mode)")
     parser.add_argument("--no-constraints", action="store_true", 
                       help="Disable coordinate constraints (warning: structure may drift largely)")
     
@@ -178,12 +305,19 @@ def main():
 
     init_pyrosetta()
     
-    run_optimization(
-        input_path, 
-        output_path, 
-        mode=args.mode, 
-        constrain=not args.no_constraints
-    )
+    if args.cyclic:
+        run_cyclic_optimization(
+            input_path,
+            output_path,
+            constrain=not args.no_constraints
+        )
+    else:
+        run_optimization(
+            input_path, 
+            output_path, 
+            mode=args.mode, 
+            constrain=not args.no_constraints
+        )
 
     print("Done.")
 
