@@ -1,83 +1,153 @@
+"""PyRosetta-based cyclic peptide optimization.
+
+Optimizes cyclic peptide-protein complexes by declaring N->C bonds and
+applying appropriate constraints during FastRelax.
+"""
 
 import argparse
+import logging
 import sys
 from pathlib import Path
-import logging
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(levelname)s: %(message)s'
-)
+PYROSETTA_INIT_FLAGS = "-mute core.chemical"
+CONSTRAINT_SD = 0.5
+INTERFACE_CUTOFF = 8.0  # angstroms
 
-def check_pyrosetta():
-    """Check if pyrosetta is importable."""
-    try:
-        import pyrosetta
-        return True
-    except ImportError:
-        return False
+CHAINBREAK_WEIGHT = 20.0
+HBOND_LR_WEIGHT = 6.0
+HBOND_SR_WEIGHT = 6.0
+CART_BONDED_WEIGHT = 1
 
-def init_pyrosetta():
-    """Initialize PyRosetta with standard options."""
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+logger = logging.getLogger(__name__)
+
+
+def init_pyrosetta(flags: str = PYROSETTA_INIT_FLAGS):
     import pyrosetta
-    # mute core to reduce verbosity, enable standard options
-    cmd_line_options = "-mute core.chemical -mute core.scoring -corrections::beta_nov16"
-    pyrosetta.init(cmd_line_options)
+    pyrosetta.init(flags)
 
-def run_cyclic_optimization(
-    input_path: Path, 
-    output_path: Path, 
-    constrain: bool = True
-):
+
+def _manage_cyclic_variants(pose, pep_start: int, pep_end: int, add_cutpoints: bool = False):
+    from pyrosetta import rosetta
+    
+    if not add_cutpoints:
+        # Remove terminus variants
+        try:
+            rosetta.core.pose.remove_variant_type_from_pose_residue(
+                pose, rosetta.core.chemical.LOWER_TERMINUS_VARIANT, pep_start
+            )
+            rosetta.core.pose.remove_variant_type_from_pose_residue(
+                pose, rosetta.core.chemical.UPPER_TERMINUS_VARIANT, pep_end
+            )
+        except Exception:
+            logger.warning("Couldn't remove terminus variants")
+    else:
+        # Add cutpoint variants for relax
+        try:
+            rosetta.core.pose.add_variant_type_to_pose_residue(
+                pose, rosetta.core.chemical.CUTPOINT_UPPER, pep_start
+            )
+            rosetta.core.pose.add_variant_type_to_pose_residue(
+                pose, rosetta.core.chemical.CUTPOINT_LOWER, pep_end
+            )
+        except Exception as e:
+            logger.warning(f"Cutpoint variant setup failed: {e}")
+
+
+def _cleanup_cutpoints(pose, pep_start: int, pep_end: int):
+    """Remove cutpoint variants after optimization."""
+    from pyrosetta import rosetta
+    try:
+        rosetta.core.pose.remove_variant_type_from_pose_residue(
+            pose, rosetta.core.chemical.CUTPOINT_UPPER, pep_start
+        )
+        rosetta.core.pose.remove_variant_type_from_pose_residue(
+            pose, rosetta.core.chemical.CUTPOINT_LOWER, pep_end
+        )
+    except Exception:
+        pass
+
+
+def _save_pose(pose, output_path: Path):
+    """Save pose, with CIF conversion if needed."""
+    logger.info(f"Saving to {output_path}...")
+    
+    if output_path.suffix.lower() == '.cif':
+        # PyRosetta doesn't write CIF directly, need gemmi
+        temp_pdb = output_path.with_suffix('.pdb.tmp')
+        pose.dump_pdb(str(temp_pdb))
+        
+        try:
+            import gemmi
+            st = gemmi.read_pdb(str(temp_pdb))
+            st.setup_entities()
+            st.make_mmcif_document().write_file(str(output_path))
+            temp_pdb.unlink()
+        except ImportError:
+            logger.error("Gemmi not available, saving as PDB instead")
+            pose.dump_pdb(str(output_path.with_suffix('.pdb')))
+    else:
+        pose.dump_pdb(str(output_path))
+
+
+def optimize_cyclic_peptide(input_path: Path, output_path: Path, constrain: bool = True):
+    """    
+    Assumes last chain is the peptide. Declares N->C bond, sets up cutpoints,
+    and optimizes with appropriate constraints.
+    """
     import pyrosetta
     from pyrosetta import rosetta
     from pyrosetta.rosetta.core.select.residue_selector import (
-        ChainSelector, NotResidueSelector, 
-        NeighborhoodResidueSelector, AndResidueSelector
+        ChainSelector, NotResidueSelector, NeighborhoodResidueSelector, AndResidueSelector
     )
     from pyrosetta.rosetta.protocols.relax import FastRelax
     from pyrosetta.rosetta.core.kinematics import MoveMap
     
-    pose = pyrosetta.pose_from_file(str(input_path))
-    total_res = pose.total_residue()
-    peptide_chain = pose.conformation().num_chains()
+    logger.info(f"Loading {input_path} for cyclic optimization...")
+    
+    try:
+        pose = pyrosetta.pose_from_file(str(input_path))
+    except Exception as e:
+        logger.error(f"Failed to load: {e}")
+        sys.exit(1)
+
+    # Assume last chain = peptide
+    n_chains = pose.conformation().num_chains()
+    peptide_chain = n_chains
+    logger.info(f"{n_chains} chains detected, using chain {peptide_chain} as peptide")
     
     pep_sel = ChainSelector(peptide_chain)
+    prot_sel = NotResidueSelector(pep_sel)
     interface_sel = AndResidueSelector(
-        NotResidueSelector(pep_sel), 
-        NeighborhoodResidueSelector(pep_sel, 8.0, False)
+        prot_sel, 
+        NeighborhoodResidueSelector(pep_sel, INTERFACE_CUTOFF, False)
     )
     
-    pep_resi = [i for i in range(1, total_res+1) if pep_sel.apply(pose)[i]]
-    interface_resi = [i for i in range(1, total_res+1) if interface_sel.apply(pose)[i]]
+    total_res = pose.total_residue()
+    pep_mask = pep_sel.apply(pose)
+    interface_mask = interface_sel.apply(pose)
+    
+    pep_resi = [i for i in range(1, total_res + 1) if pep_mask[i]]
+    interface_resi = [i for i in range(1, total_res + 1) if interface_mask[i]]
     
     if not pep_resi:
-        raise ValueError("No peptide residues found")
+        logger.error("No peptide residues found!")
+        sys.exit(1)
         
     pep_start, pep_end = pep_resi[0], pep_resi[-1]
-    print(f"Peptide chain {peptide_chain}: {pep_start}-{pep_end} ({len(pep_resi)} residues)")
-    print(f"Interface: {len(interface_resi)} protein residues")
+    logger.info(f"Peptide: {pep_start}-{pep_end}, Interface: {len(interface_resi)} residues")
 
-    # Cyclization: remove termini, declare bond, add cutpoints
-    for variant, res in [
-        (rosetta.core.chemical.LOWER_TERMINUS_VARIANT, pep_start),
-        (rosetta.core.chemical.UPPER_TERMINUS_VARIANT, pep_end)
-    ]:
-        try:
-            rosetta.core.pose.remove_variant_type_from_pose_residue(pose, variant, res)
-        except:
-            pass
-
-    pose.conformation().declare_chemical_bond(pep_start, "N", pep_end, "C")
+    logger.info("Setting up cyclic bond...")
+    _manage_cyclic_variants(pose, pep_start, pep_end, add_cutpoints=False)
     
-    for variant, res in [
-        (rosetta.core.chemical.CUTPOINT_UPPER, pep_start),
-        (rosetta.core.chemical.CUTPOINT_LOWER, pep_end)
-    ]:
-        rosetta.core.pose.add_variant_type_to_pose_residue(pose, variant, res)
+    logger.info(f"Declaring bond: {pep_start}:N <-> {pep_end}:C")
+    try:
+        pose.conformation().declare_chemical_bond(pep_start, "N", pep_end, "C")
+    except Exception as e:
+        logger.error(f"Bond declaration failed: {e}")
+        
+    _manage_cyclic_variants(pose, pep_start, pep_end, add_cutpoints=True)
 
-    # Movemap: peptide bb+chi, interface chi
     mm = MoveMap()
     mm.set_bb(False)
     mm.set_chi(False)
@@ -88,206 +158,59 @@ def run_cyclic_optimization(
         mm.set_chi(r, True)
     for r in interface_resi:
         mm.set_chi(r, True)
-        
-    # Score function with cyclic-specific weights
-    sf = pyrosetta.create_score_function("beta_nov16")
-    sf.set_weight(rosetta.core.scoring.chainbreak, 100.0)
-    sf.set_weight(rosetta.core.scoring.hbond_lr_bb, 6.0)
-    sf.set_weight(rosetta.core.scoring.hbond_sr_bb, 6.0)
+
+    sf = pyrosetta.create_score_function("ref2015_cart")
+    sf.set_weight(rosetta.core.scoring.chainbreak, CHAINBREAK_WEIGHT)
+    sf.set_weight(rosetta.core.scoring.hbond_lr_bb, HBOND_LR_WEIGHT)
+    sf.set_weight(rosetta.core.scoring.hbond_sr_bb, HBOND_SR_WEIGHT)
+    sf.set_weight(rosetta.core.scoring.cart_bonded, CART_BONDED_WEIGHT)
+
+    sf.show(pose)
     
-    print(f"Initial score: {sf(pose):.2f}")
-    
-    # Optimize
-    fr = FastRelax()
-    fr.set_scorefxn(sf)
-    fr.set_movemap(mm)
+    logger.info("Running Cartesian FastRelax...")
+    relax = FastRelax()
+    relax.set_scorefxn(sf)
+    relax.set_movemap(mm)
+    relax.cartesian(True)
+    relax.minimize_bond_angles(True)
+    relax.minimize_bond_lengths(True)
     if constrain:
-        fr.constrain_relax_to_start_coords(True)
-        fr.coord_constrain_sidechains(True)
-    fr.apply(pose)
+        relax.constrain_relax_to_start_coords(True)
+        relax.coord_constrain_sidechains(True)
     
-    # Remove cutpoint variants
-    for variant, res in [
-        (rosetta.core.chemical.CUTPOINT_UPPER, pep_start),
-        (rosetta.core.chemical.CUTPOINT_LOWER, pep_end)
-    ]:
-        try:
-            rosetta.core.pose.remove_variant_type_from_pose_residue(pose, variant, res)
-        except:
-            pass
-        
-    print(f"Final score: {sf(pose):.2f}")
-    pose.dump_pdb(str(output_path))
-
-def run_optimization(
-    input_path: Path, 
-    output_path: Path, 
-    mode: str = 'relax',
-    constrain: bool = True
-):
-    import pyrosetta
-    from pyrosetta import rosetta
-
-    print(f"Loading {input_path}...")
+    relax.apply(pose)
     
-    # Load Pose
-    try:
-        pose = pyrosetta.pose_from_file(str(input_path))
-    except Exception as e:
-        logging.error(f"Failed to load structure: {e}")
-        sys.exit(1)
+    _cleanup_cutpoints(pose, pep_start, pep_end)
+    
+    final_score = sf(pose)
+    logger.info(f"Final score: {final_score:.2f}")
+    sf.show(pose)
+    
+    _save_pose(pose, output_path)
 
-    # Setup ScoreFunction
-    # beta_nov16 is widely used for protein structure prediction/refinement
-    # Use cartesian version if we are doing cartesian relax
-    score_name = "beta_nov16_cart" if mode == 'cartesian' else "beta_nov16"
-    sf = pyrosetta.create_score_function(score_name)
-
-    # Setup Constraints (highly recommended to keep structure close to input)
-    if constrain:
-        print("Applying coordinate constraints...")
-        # Add constraints to the pose
-        # Constraint all heavy atoms to their starting coordinates with a harmonic potential
-        
-        # Easier way in PyRosetta: use CoordinateConstraintGenerator
-        cg = rosetta.protocols.constraint_generator.CoordinateConstraintGenerator()
-        cg.set_sd(0.5) # Standard deviation of the harmonic potential (lower = tighter)
-        cg.set_bounded(False)
-        
-        # Apply constraints
-        ac = rosetta.protocols.constraint_generator.AddConstraints()
-        ac.add_generator(cg)
-        ac.apply(pose)
-        
-        # Add constraint weight to score function
-        sf.set_weight(rosetta.core.scoring.coordinate_constraint, 1.0)
-
-    # IDEALIZATION STEP
-    # If geometry is bad (bond lengths/angles), we MUST idealize first.
-    # We do this before minimization/relax.
-    print("Running IdealizeMover to fix bond lengths and angles...")
-    idealizer = rosetta.protocols.idealize.IdealizeMover()
-    idealizer.fast(True) # Fast mode
-    idealizer.apply(pose)
-
-    initial_energy = sf(pose)
-    print(f"Initial Energy: {initial_energy:.2f}")
-
-    if mode == 'minimize':
-        print("Running MinMover (Gradient Descent)...")
-        # MinMover: strictly minimizes energy in the local basin
-        min_mover = rosetta.protocols.minimization_packing.MinMover()
-        min_mover.movemap(rosetta.core.kinematics.MoveMap()) # Update all dofs
-        # Customize movemap
-        mm = rosetta.core.kinematics.MoveMap()
-        mm.set_bb(True)
-        mm.set_chi(True)
-        mm.set_jump(True)
-        min_mover.movemap(mm)
-        min_mover.score_function(sf)
-        min_mover.min_type('lbfgs_armijo_nonmonotone')
-        min_mover.tolerance(0.001)
-        
-        min_mover.apply(pose)
-
-    elif mode == 'relax':
-        print("Running FastRelax (Iterative Packing/Minimization)...")
-        # FastRelax: Iterative cycles of packing and minimization
-        relax = pyrosetta.rosetta.protocols.relax.FastRelax()
-        relax.set_scorefxn(sf)
-        
-        # If we added constraints, we typically want the relax to respect them
-        if constrain:
-            relax.constrain_relax_to_start_coords(True)
-            relax.coord_constrain_sidechains(True)
-        
-        relax.apply(pose)
-
-    elif mode == 'cartesian':
-        print("Running Cartesian FastRelax...")
-        relax = pyrosetta.rosetta.protocols.relax.FastRelax()
-        relax.set_scorefxn(sf)
-        relax.cartesian(True) # ENABLE CARTESIAN MINIMIZATION
-        
-        if constrain:
-            relax.constrain_relax_to_start_coords(True)
-            relax.coord_constrain_sidechains(True)
-            
-            # For Cartesian, we might need to be careful with prolines or constraints
-            # but usually FastRelax handles it well.
-        
-        relax.apply(pose)
-
-    final_energy = sf(pose)
-    print(f"Final Energy:   {final_energy:.2f}")
-    print(f"Delta Energy:   {final_energy - initial_energy:.2f}")
-
-    print(f"Saving to {output_path}...")
-    if output_path.suffix.lower() == '.cif':
-        # PyRosetta mostly dumps PDB. Use Gemmi to convert if CIF is requested.
-        temp_pdb = output_path.with_suffix('.pdb.tmp')
-        pose.dump_pdb(str(temp_pdb))
-        try:
-            import gemmi
-            st = gemmi.read_pdb(str(temp_pdb))
-            st.setup_entities() # Helps with CIF structure
-            st.make_mmcif_document().write_file(str(output_path))
-            temp_pdb.unlink()
-        except ImportError:
-            logging.error("Gemmi not found. Cannot convert to CIF. Saving as PDB instead.")
-            pose.dump_pdb(str(output_path.with_suffix('.pdb')))
-    else:
-        pose.dump_pdb(str(output_path))
-    # Note: PyRosetta dump_pdb writes PDB format. If CIF is strictly required, 
-    # we might need extra conversion, but PDB is usually fine for these sizes.
 
 def main():
-    parser = argparse.ArgumentParser(description="Optimize protein structure using PyRosetta")
+    parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("input_file", help="Input PDB/CIF file")
-    parser.add_argument("--output", "-o", help="Output PDB file path")
-    parser.add_argument("--mode", choices=['minimize', 'relax', 'cartesian'], default='cartesian',
-                      help="Optimization mode: 'minimize', 'relax' (torsion), or 'cartesian' (fixes bond lengths)")
-    parser.add_argument("--cyclic", action="store_true", help="Enable cyclic peptide optimization (expert mode)")
-    parser.add_argument("--no-constraints", action="store_true", 
-                      help="Disable coordinate constraints (warning: structure may drift largely)")
-    
+    parser.add_argument("--output", "-o", help="Output path (default: <input>_optimized.<ext>)")
+    parser.add_argument("--no-constraints", action="store_true",help="Disable coordinate constraints")
     args = parser.parse_args()
     
     input_path = Path(args.input_file)
     if not input_path.exists():
-        logging.error(f"Input file not found: {input_path}")
+        logger.error(f"File not found: {input_path}")
         sys.exit(1)
-        
-    if args.output:
-        output_path = Path(args.output)
-    else:
-        # Auto-name: input_minimized.pdb
-        # Auto-name: input_optimized.ext
-        output_path = input_path.with_name(f"{input_path.stem}_optimized{input_path.suffix}")
-
-    if not check_pyrosetta():
-        logging.error("PyRosetta not found!")
-        logging.error("Please install it (e.g., via Conda with your license key).")
-        logging.error("Command: conda install -c https://conda.rosetta.commons.org pyrosetta")
-        sys.exit(1)
-
+    
+    output_path = Path(args.output) if args.output else \
+                  input_path.with_name(f"{input_path.stem}_optimized{input_path.suffix}")
+    
     init_pyrosetta()
     
-    if args.cyclic:
-        run_cyclic_optimization(
-            input_path,
-            output_path,
-            constrain=not args.no_constraints
-        )
-    else:
-        run_optimization(
-            input_path, 
-            output_path, 
-            mode=args.mode, 
-            constrain=not args.no_constraints
-        )
+    constrain = not args.no_constraints
+    optimize_cyclic_peptide(input_path, output_path, constrain)
 
-    print("Done.")
+    logger.info("Done")
+
 
 if __name__ == "__main__":
     main()

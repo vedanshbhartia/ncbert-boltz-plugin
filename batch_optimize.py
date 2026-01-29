@@ -63,7 +63,7 @@ def main():
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
             logging.info(f"Successfully processed {cif_file.name}")
-            logging.info(result.stdout)
+            # logging.debug(result.stdout)
         except subprocess.CalledProcessError as e:
             logging.error(f"Failed to process {cif_file.name}")
             logging.error(f"Error output: {e.stderr}")
