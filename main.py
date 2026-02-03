@@ -171,8 +171,8 @@ class PDBParser:
     """PDB parser to extract sequences using Gemmi"""
 
     @staticmethod
-    def extract_sequence(pdb_path: Path, chain_id: Optional[str] = None) -> str:
-        """Extract sequence from PDB using Gemmi. Falls back to manual extraction if needed."""
+    def extract_sequence(pdb_path: Path) -> Dict[str, str]:
+        """Extract sequences from PDB using Gemmi. Returns dict of chain_id -> sequence."""
         try:
             import gemmi
         except ImportError:
@@ -183,72 +183,63 @@ class PDBParser:
             st = gemmi.read_structure(str(pdb_path))
             st.setup_entities()
 
-            target_chain_id = chain_id
-            target_entity = None
-            
-            if target_chain_id:
-                for ent in st.entities:
-                    if ent.entity_type == gemmi.EntityType.Polymer:
-                        for sub in ent.subchains:
-                            if sub.startswith(target_chain_id):
-                                target_entity = ent
-                                break
-                    if target_entity:
-                        break
+            sequences = {}
 
-                if not target_entity:
-                    logging.warning(f"Could not find polymer entity for chain {target_chain_id}. Falling back to manual extraction.")
-            else:
-                for ent in st.entities:
-                    if ent.entity_type == gemmi.EntityType.Polymer:
-                        target_entity = ent
-                        break
-            
-            if target_entity:
-                seq_list = target_entity.full_sequence
-
-                if not seq_list:
-                    logging.info("Entity full_sequence is empty (no SEQRES). Extracting from residues.")
-                    seq_list = []
-                    for sub in target_entity.subchains:
-                        for model in st:
-                            for chain in model:
-                                for res in chain:
-                                    if res.subchain == sub:
-                                        if res.is_water(): continue
-                                        code = gemmi.find_tabulated_residue(res.name).one_letter_code
-                                        if code.strip():
-                                            seq_list.append(code.upper())
-
-                final_seq = []
-                for item in seq_list:
-                    if len(item) > 1:
-                        code = gemmi.find_tabulated_residue(item).one_letter_code
-                        if code.strip():
-                            final_seq.append(code.upper())
-                        else:
-                            final_seq.append('X')
+            # First try using entities (preferred for SEQRES)
+            for ent in st.entities:
+                if ent.entity_type == gemmi.EntityType.Polymer:
+                    seq_str = ""
+                    if ent.full_sequence:
+                         # Convert list of codes to string
+                        final_seq = []
+                        for item in ent.full_sequence:
+                            if len(item) > 1:
+                                code = gemmi.find_tabulated_residue(item).one_letter_code
+                                if code.strip():
+                                    final_seq.append(code.upper())
+                                else:
+                                    final_seq.append('X')
+                            else:
+                                final_seq.append(item.upper())
+                        seq_str = "".join(final_seq)
                     else:
-                        final_seq.append(item.upper())
-                        
-                sequence = "".join(final_seq)
-                logging.info(f"Extracted sequence for chain {target_chain_id or 'first'}: {sequence}")
-                return sequence
+                         # Extract from residues if SEQRES missing
+                        logging.info(f"Entity {ent.name} missing SEQRES. Extracting from residues.")
+                        seq_list = []
+                        # Find subchains for this entity
+                        for sub in ent.subchains:
+                            for model in st:
+                                for chain in model:
+                                    for res in chain:
+                                        if res.subchain == sub:
+                                            if res.is_water(): continue
+                                            code = gemmi.find_tabulated_residue(res.name).one_letter_code
+                                            if code.strip():
+                                                seq_list.append(code.upper())
+                        seq_str = "".join(seq_list)
 
-            logging.info("Falling back to manual extraction (ignoring connectivity).")
+                    if seq_str:
+                         # Entities store subchains. We map each subchain ID to this sequence.
+                        for sub in ent.subchains:
+                            sequences[sub] = seq_str
+            
+            if sequences:
+                logging.info(f"Extracted sequences for chains: {list(sequences.keys())}")
+                return sequences
+
+            logging.info("Falling back to manual extraction (ignoring connectivity/entities).")
             model = st[0]
-            if target_chain_id and target_chain_id in model:
-                chain = model[target_chain_id]
-            else:
-                chain = model[0]
-
-            seq = []
-            for res in chain:
-                if res.is_water(): continue
-                code = gemmi.find_tabulated_residue(res.name).one_letter_code
-                if code.strip():
-                    seq.append(code.upper())
-            return "".join(seq)
+            for chain in model:
+                seq = []
+                for res in chain:
+                    if res.is_water(): continue
+                    code = gemmi.find_tabulated_residue(res.name).one_letter_code
+                    if code.strip():
+                        seq.append(code.upper())
+                if seq:
+                    sequences[chain.name] = "".join(seq)
+            
+            return sequences
 
         except Exception as e:
             logging.error(f"Error parsing PDB {pdb_path}: {e}")
@@ -354,32 +345,48 @@ class BoltzInputGenerator:
     def create_single_protein_yaml(
         sequence: str,
         modifications: List[Dict],
-        chain_id: str = 'A',
+        chain_id: Optional[str] = None,
         msa_path: Optional[str] = None,
         target_pdb_path: Optional[Path] = None,
-        target_chain_id: str = 'A',
+        target_chains: Optional[Dict[str, str]] = None,
         cyclic: bool = True
     ) -> Dict:
         """Create Boltz YAML for peptide, optionally docked to target structure."""
         sequences_list = []
+        # We will assign chain IDs sequentially: A, B, C...
+        chain_counter = 0
+        
+        new_target_chain_ids = []
 
         if target_pdb_path:
-            target_seq = PDBParser.extract_sequence(target_pdb_path)
-
-            target_entry = {
-                'protein': {
-                    'id': target_chain_id,
-                    'sequence': target_seq,
-                    'msa': 'empty'
+            # If target_chains not provided, extract them
+            if not target_chains:
+                target_chains = PDBParser.extract_sequence(target_pdb_path)
+            
+            for t_chain, t_seq in target_chains.items():
+                # Assign new sequential ID
+                new_id = chr(ord('A') + chain_counter)
+                chain_counter += 1
+                
+                target_entry = {
+                    'protein': {
+                        'id': new_id,
+                        'sequence': t_seq,
+                        'msa': 'empty'
+                    }
                 }
-            }
-            sequences_list.append(target_entry)
+                sequences_list.append(target_entry)
+                new_target_chain_ids.append(new_id)
 
-            if chain_id == target_chain_id:
-                chain_id = chr(ord(target_chain_id) + 1)
-
+        # Determine peptide chain ID (next sequential letter)
+        # If chain_id was provided, we ignore it in favor of sequential logic 
+        # (or we could try to respect it if it fits the sequence, but user asked for sequential)
+        # The user request specifically asked to "use sequentially increasing single uppercase letters"
+        
+        peptide_chain_id = chr(ord('A') + chain_counter)
+        
         peptide_entry = {
-            'id': chain_id,
+            'id': peptide_chain_id,
             'sequence': sequence
         }
 
@@ -399,10 +406,11 @@ class BoltzInputGenerator:
         }
 
         if target_pdb_path:
+            # Template must refer to the ORIGINAL PDB chain IDs
             yaml_output['templates'] = [
                 {
                     'pdb': str(target_pdb_path),
-                    'chain_id': [target_chain_id],
+                    'chain_id': new_target_chain_ids,
                 }
             ]
 
@@ -416,34 +424,48 @@ class BoltzInputGenerator:
         cyclic_flags: Optional[List[bool]] = None,
         target_pdb_path: Optional[Path] = None
     ) -> Dict:
-        """Create Boltz YAML for multiple proteins. Target is added as first chain if provided."""
+        """Create Boltz YAML for multiple proteins. Target chains added if provided."""
         sequences_list = []
-        current_chain_idx = 0
+        chain_counter = 0
+        new_target_chain_ids = []
 
+        target_chains = {}
         if target_pdb_path:
-            target_seq = PDBParser.extract_sequence(target_pdb_path)
-            target_chain = 'A'
-            sequences_list.append({
-                'protein': {
-                    'id': target_chain,
-                    'sequence': target_seq,
-                    'msa': 'empty'
-                }
-            })
-            current_chain_idx = 1
+            target_chains = PDBParser.extract_sequence(target_pdb_path)
+            for t_chain, t_seq in target_chains.items():
+                new_id = chr(ord('A') + chain_counter)
+                chain_counter += 1
+                
+                sequences_list.append({
+                    'protein': {
+                        'id': new_id,
+                        'sequence': t_seq,
+                        'msa': 'empty'
+                    }
+                })
+                new_target_chain_ids.append(new_id)
 
-        if chain_ids is None:
-            chain_ids = [chr(65 + current_chain_idx + i) for i in range(len(sequences_and_mods))]
+        # Generate chain IDs for input sequences
+        num_seqs = len(sequences_and_mods)
+        final_chain_ids = []
+        
+        # We ignore provided chain_ids argument to enforce sequential logic if that's preferred,
+        # OR we just fill in the remaining. The user prompt implies strictly sequential.
+        # "generating yaml, main.py needs to use sequentially increasing single uppercase letters"
+        
+        for _ in range(num_seqs):
+            final_chain_ids.append(chr(ord('A') + chain_counter))
+            chain_counter += 1
 
         if msa_paths is None:
-            msa_paths = [None] * len(sequences_and_mods)
+            msa_paths = [None] * num_seqs
 
         if cyclic_flags is None:
-            cyclic_flags = [False] * len(sequences_and_mods)
+            cyclic_flags = [False] * num_seqs
 
         for i, (seq, mods) in enumerate(sequences_and_mods):
             protein_entry = {
-                'id': chain_ids[i],
+                'id': final_chain_ids[i],
                 'sequence': seq
             }
 
@@ -463,7 +485,7 @@ class BoltzInputGenerator:
         if target_pdb_path:
             yaml_output['templates'] = [{
                 'pdb': str(target_pdb_path),
-                'chain_id': ['A']
+                'chain_id': new_target_chain_ids
             }]
             
         return yaml_output
@@ -607,10 +629,13 @@ class ModifiedSequenceBoltzPipeline:
         logging.info(f"Processing sequence: {name}")
 
         fixed_target_pdb = None
+        target_chains = {}
         if target_pdb_path:
             fixed_target_pdb = PDBParser.ensure_pdb_has_seqres(target_pdb_path)
             if fixed_target_pdb != target_pdb_path:
                 logging.info(f"Using fixed PDB: {fixed_target_pdb}")
+            # Extract sequences from fixed PDB
+            target_chains = PDBParser.extract_sequence(fixed_target_pdb or target_pdb_path)
 
         sequence, modifications = self.parser.parse_sequence(seq_string)
 
@@ -620,7 +645,11 @@ class ModifiedSequenceBoltzPipeline:
             logging.info(f"    Position {mod['position']}: {mod['ccd']}")
 
         yaml_dict = self.yaml_gen.create_single_protein_yaml(
-            sequence, modifications, target_pdb_path=fixed_target_pdb or target_pdb_path, cyclic=cyclic
+            sequence, 
+            modifications, 
+            target_pdb_path=fixed_target_pdb or target_pdb_path, 
+            target_chains=target_chains,
+            cyclic=cyclic
         )
 
         yaml_file = self.yaml_dir / f"{name}.yaml"
@@ -742,7 +771,7 @@ def run_pipeline_with_sequences(
     seq_strings = sequence_string.strip().split('\n')
 
     if sequence_names is None:
-        sequence_names = [f"SA474935_cand1_pred_{i+1}" for i in range(len(seq_strings))]
+        sequence_names = [f"H2CP_{i+1}" for i in range(len(seq_strings))]
 
     results = pipeline.process_multiple_sequences(
         seq_strings,
@@ -772,16 +801,7 @@ def main():
     config = load_config()
 
     example_sequence = """
-RGDG[DIL]GCGVSFKKYHGWA
-CGSKFLGGHAHYTGKN[CSS]A
-AGDNQGHGSMDLTN[CGU]CCV
-CGDTKGMGK[DLY]GQSVDCCT
-HGNGKCQGAA[DTY]GGTVNGW
-GGPNYVMGAGTPHAVWNF
-AYDDKGHGC[PCA]GKRDWHHC
-AYSGQGTGRSG[ARG]DVVLHD
-FGDRRGYGIGYDQN[YCM]NEF
-GGPFQGGGR[DTH]HQYYVA[CSO]T
+CHLGRSYC
 """.strip()
 
     target_pdb = Path(config['target_pdb_path']) if config['target_pdb_path'] else None
