@@ -69,25 +69,26 @@ def _cleanup_cutpoints(pose, pep_start: int, pep_end: int):
 
 
 def _save_pose(pose, output_path: Path):
-    """Save pose, with CIF conversion if needed."""
-    logger.info(f"Saving to {output_path}...")
+    """Save pose as both PDB and CIF formats."""
+    # Always establish paths for both formats
+    pdb_path = output_path.with_suffix('.pdb')
+    cif_path = output_path.with_suffix('.cif')
     
-    if output_path.suffix.lower() == '.cif':
-        # PyRosetta doesn't write CIF directly, need gemmi
-        temp_pdb = output_path.with_suffix('.pdb.tmp')
-        pose.dump_pdb(str(temp_pdb))
-        
-        try:
-            import gemmi
-            st = gemmi.read_pdb(str(temp_pdb))
-            st.setup_entities()
-            st.make_mmcif_document().write_file(str(output_path))
-            temp_pdb.unlink()
-        except ImportError:
-            logger.error("Gemmi not available, saving as PDB instead")
-            pose.dump_pdb(str(output_path.with_suffix('.pdb')))
-    else:
-        pose.dump_pdb(str(output_path))
+    # 1. Always save PDB (PyRosetta native)
+    logger.info(f"Saving PDB to {pdb_path}...")
+    pose.dump_pdb(str(pdb_path))
+    
+    # 2. Try to save CIF using Gemmi (needs the PDB we just saved)
+    logger.info(f"Saving CIF to {cif_path}...")
+    try:
+        import gemmi
+        st = gemmi.read_pdb(str(pdb_path))
+        st.setup_entities()
+        st.make_mmcif_document().write_file(str(cif_path))
+    except ImportError:
+        logger.warning(f"Gemmi not installed. Could not generate {cif_path}")
+    except Exception as e:
+        logger.error(f"Failed to convert PDB to CIF: {e}")
 
 
 def optimize_cyclic_peptide(input_path: Path, output_path: Path, constrain: bool = True):
@@ -138,15 +139,15 @@ def optimize_cyclic_peptide(input_path: Path, output_path: Path, constrain: bool
     logger.info(f"Peptide: {pep_start}-{pep_end}, Interface: {len(interface_resi)} residues")
 
     logger.info("Setting up cyclic bond...")
-    _manage_cyclic_variants(pose, pep_start, pep_end, add_cutpoints=False)
+    # _manage_cyclic_variants(pose, pep_start, pep_end, add_cutpoints=False)
     
-    logger.info(f"Declaring bond: {pep_start}:N <-> {pep_end}:C")
-    try:
-        pose.conformation().declare_chemical_bond(pep_start, "N", pep_end, "C")
-    except Exception as e:
-        logger.error(f"Bond declaration failed: {e}")
+    # logger.info(f"Declaring bond: {pep_start}:N <-> {pep_end}:C")
+    # try:
+    #     pose.conformation().declare_chemical_bond(pep_start, "N", pep_end, "C")
+    # except Exception as e:
+    #     logger.error(f"Bond declaration failed: {e}")
         
-    _manage_cyclic_variants(pose, pep_start, pep_end, add_cutpoints=True)
+    # _manage_cyclic_variants(pose, pep_start, pep_end, add_cutpoints=True)
 
     mm = MoveMap()
     mm.set_bb(False)
@@ -160,7 +161,7 @@ def optimize_cyclic_peptide(input_path: Path, output_path: Path, constrain: bool
         mm.set_chi(r, True)
 
     sf = pyrosetta.create_score_function("ref2015_cart")
-    sf.set_weight(rosetta.core.scoring.chainbreak, CHAINBREAK_WEIGHT)
+    # sf.set_weight(rosetta.core.scoring.chainbreak, CHAINBREAK_WEIGHT)
     sf.set_weight(rosetta.core.scoring.hbond_lr_bb, HBOND_LR_WEIGHT)
     sf.set_weight(rosetta.core.scoring.hbond_sr_bb, HBOND_SR_WEIGHT)
     sf.set_weight(rosetta.core.scoring.cart_bonded, CART_BONDED_WEIGHT)
@@ -180,7 +181,7 @@ def optimize_cyclic_peptide(input_path: Path, output_path: Path, constrain: bool
     
     relax.apply(pose)
     
-    _cleanup_cutpoints(pose, pep_start, pep_end)
+    # _cleanup_cutpoints(pose, pep_start, pep_end)
     
     final_score = sf(pose)
     logger.info(f"Final score: {final_score:.2f}")
