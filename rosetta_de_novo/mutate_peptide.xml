@@ -1,0 +1,12 @@
+<ROSETTASCRIPTS>
+  <SCOREFXNS>
+    <ScoreFunction name="ref2015" weights="ref2015" />
+  </SCOREFXNS>
+  <MOVERS>
+    <MutateResidue name="mut_1" target="5B" new_res="DILE" preserve_atom_coords="true" />
+  </MOVERS>
+  <PROTOCOLS>
+    <Add mover="mut_1" />
+  </PROTOCOLS>
+  <OUTPUT scorefxn="ref2015" />
+</ROSETTASCRIPTS>

@@ -1,0 +1,240 @@
+{
+  "receptor_chain": "A",
+  "peptide_chain": "B",
+  "cutoff": 6.0,
+  "center": [
+    3.5281578947368417,
+    0.4160526315789474,
+    -3.3606315789473684
+  ],
+  "residues": [
+    {
+      "chain": "A",
+      "resnum": 62,
+      "resname": "HIS",
+      "min_dist": 5.721231423391297
+    },
+    {
+      "chain": "A",
+      "resnum": 64,
+      "resname": "ASP",
+      "min_dist": 2.9458141489238585
+    },
+    {
+      "chain": "A",
+      "resnum": 65,
+      "resname": "ASN",
+      "min_dist": 4.69916013772674
+    },
+    {
+      "chain": "A",
+      "resnum": 66,
+      "resname": "SER",
+      "min_dist": 2.845846095627801
+    },
+    {
+      "chain": "A",
+      "resnum": 67,
+      "resname": "PRO",
+      "min_dist": 3.2259468377516707
+    },
+    {
+      "chain": "A",
+      "resnum": 68,
+      "resname": "PHE",
+      "min_dist": 4.460286986282385
+    },
+    {
+      "chain": "A",
+      "resnum": 69,
+      "resname": "ASP",
+      "min_dist": 3.016024535709217
+    },
+    {
+      "chain": "A",
+      "resnum": 72,
+      "resname": "ASN",
+      "min_dist": 3.1227977840391783
+    },
+    {
+      "chain": "A",
+      "resnum": 73,
+      "resname": "GLY",
+      "min_dist": 2.9569392959612815
+    },
+    {
+      "chain": "A",
+      "resnum": 74,
+      "resname": "ILE",
+      "min_dist": 3.3023237273168724
+    },
+    {
+      "chain": "A",
+      "resnum": 75,
+      "resname": "LEU",
+      "min_dist": 2.952588356002238
+    },
+    {
+      "chain": "A",
+      "resnum": 76,
+      "resname": "ALA",
+      "min_dist": 2.70908951494778
+    },
+    {
+      "chain": "A",
+      "resnum": 77,
+      "resname": "HIS",
+      "min_dist": 3.44038617018497
+    },
+    {
+      "chain": "A",
+      "resnum": 78,
+      "resname": "ALA",
+      "min_dist": 2.901213711535226
+    },
+    {
+      "chain": "A",
+      "resnum": 79,
+      "resname": "PHE",
+      "min_dist": 3.07457915819385
+    },
+    {
+      "chain": "A",
+      "resnum": 80,
+      "resname": "GLN",
+      "min_dist": 2.942332408141541
+    },
+    {
+      "chain": "A",
+      "resnum": 81,
+      "resname": "PRO",
+      "min_dist": 4.485808511294257
+    },
+    {
+      "chain": "A",
+      "resnum": 82,
+      "resname": "GLY",
+      "min_dist": 4.154065719268293
+    },
+    {
+      "chain": "A",
+      "resnum": 83,
+      "resname": "GLN",
+      "min_dist": 3.5385591700577805
+    },
+    {
+      "chain": "A",
+      "resnum": 84,
+      "resname": "GLY",
+      "min_dist": 4.6160214470905565
+    },
+    {
+      "chain": "A",
+      "resnum": 85,
+      "resname": "ILE",
+      "min_dist": 3.616730844284656
+    },
+    {
+      "chain": "A",
+      "resnum": 86,
+      "resname": "GLY",
+      "min_dist": 3.8859435147721846
+    },
+    {
+      "chain": "A",
+      "resnum": 87,
+      "resname": "GLY",
+      "min_dist": 5.810666829202996
+    },
+    {
+      "chain": "A",
+      "resnum": 95,
+      "resname": "GLU",
+      "min_dist": 5.543580521648441
+    },
+    {
+      "chain": "A",
+      "resnum": 104,
+      "resname": "TYR",
+      "min_dist": 4.3806861334727
+    },
+    {
+      "chain": "A",
+      "resnum": 108,
+      "resname": "LEU",
+      "min_dist": 5.886840493847273
+    },
+    {
+      "chain": "A",
+      "resnum": 109,
+      "resname": "VAL",
+      "min_dist": 3.500298415849711
+    },
+    {
+      "chain": "A",
+      "resnum": 110,
+      "resname": "ALA",
+      "min_dist": 5.8647837982316116
+    },
+    {
+      "chain": "A",
+      "resnum": 112,
+      "resname": "HIS",
+      "min_dist": 3.15006095179125
+    },
+    {
+      "chain": "A",
+      "resnum": 113,
+      "resname": "GLU",
+      "min_dist": 3.278301541957359
+    },
+    {
+      "chain": "A",
+      "resnum": 116,
+      "resname": "HIS",
+      "min_dist": 3.186437823024325
+    },
+    {
+      "chain": "A",
+      "resnum": 120,
+      "resname": "LEU",
+      "min_dist": 5.417994924323942
+    },
+    {
+      "chain": "A",
+      "resnum": 121,
+      "resname": "ALA",
+      "min_dist": 5.916350733349064
+    },
+    {
+      "chain": "A",
+      "resnum": 122,
+      "resname": "HIS",
+      "min_dist": 3.3103169032586592
+    },
+    {
+      "chain": "A",
+      "resnum": 131,
+      "resname": "TYR",
+      "min_dist": 5.903376491466557
+    },
+    {
+      "chain": "A",
+      "resnum": 132,
+      "resname": "PRO",
+      "min_dist": 3.567613908482811
+    },
+    {
+      "chain": "A",
+      "resnum": 133,
+      "resname": "ASN",
+      "min_dist": 4.027455275977624
+    },
+    {
+      "chain": "A",
+      "resnum": 134,
+      "resname": "TYR",
+      "min_dist": 4.929304311969388
+    }
+  ]
+}
