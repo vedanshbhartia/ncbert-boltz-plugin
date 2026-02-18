@@ -24,7 +24,8 @@
 		<Chain name="select_MMP8" chains="B" />
 		<Chain name="select_peptide" chains="A" />
 		<Slice name="pep_first" selector="select_peptide" from="1" to="1" slice_mode="SPARSE"/>
-		<Slice name="pep_last"  selector="select_peptide" from="-1" to="-1" slice_mode="SPARSE"/>
+		<!-- This protocol expects an 18-residue trimmed chain A input. -->
+		<Slice name="pep_last"  selector="select_peptide" from="18" to="18" slice_mode="SPARSE"/>
 		<!-- Retrieve the original select_near_peptide residue subset created by the "StoreResidueSubset" mover -->
 		<Neighborhood name="near_peptide_all" selector="select_peptide" distance="8.0" include_focus_in_subset="false"/>
 		<And name="select_near_peptide" selectors="select_MMP8,near_peptide_all"/>
