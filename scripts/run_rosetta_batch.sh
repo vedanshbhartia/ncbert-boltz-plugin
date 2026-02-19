@@ -6,18 +6,20 @@ usage() {
 Usage:
   scripts/run_rosetta_batch.sh \
     --jobs jobs.tsv \
-    --input-pdb inputs/alpha_001_chainA_del4_5_18mer.pdb \
+    --input-pdb input.pdb \
     --xml relax_script_thread_pep.xml \
     [--run-dir runs/rosetta_batch_YYYYmmdd_HHMMSS] \
     [--rosetta-bin /path/to/rosetta_scripts.static.linuxgccrelease] \
     [--rosetta-db /path/to/database] \
+    [--peptide-chain A] \
+    [--include-hetatm-backbone-check] \
     [--parallel 8] \
     [--nstruct 1] \
     [--skip-backbone-check]
 
 Required:
   --jobs         Job manifest TSV (job_id, source_file, line_no, pepseq)
-  --input-pdb    Trimmed 18-res scaffold PDB
+  --input-pdb    Scaffold PDB
   --xml          RosettaScripts XML protocol
 USAGE
 }
@@ -34,6 +36,8 @@ RUN_DIR=""
 PARALLEL=8
 NSTRUCT=1
 SKIP_BACKBONE_CHECK=0
+PEPTIDE_CHAIN="A"
+INCLUDE_HETATM_BACKBONE_CHECK=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -68,6 +72,14 @@ while [[ $# -gt 0 ]]; do
     --nstruct)
       NSTRUCT="$2"
       shift 2
+      ;;
+    --peptide-chain)
+      PEPTIDE_CHAIN="$2"
+      shift 2
+      ;;
+    --include-hetatm-backbone-check)
+      INCLUDE_HETATM_BACKBONE_CHECK=1
+      shift
       ;;
     --skip-backbone-check)
       SKIP_BACKBONE_CHECK=1
@@ -131,13 +143,23 @@ if ! [[ "$NSTRUCT" =~ ^[0-9]+$ ]] || [[ "$NSTRUCT" -lt 1 ]]; then
   echo "Invalid --nstruct value: $NSTRUCT" >&2
   exit 1
 fi
+if [[ -z "$PEPTIDE_CHAIN" ]]; then
+  echo "Invalid --peptide-chain value: must be non-empty." >&2
+  exit 1
+fi
 if [[ "$SKIP_BACKBONE_CHECK" -eq 0 ]]; then
-  if ! python3 "$BACKBONE_CHECK_SCRIPT" \
-    --pdb "$INPUT_PDB" \
-    --chain A \
-    --cyclic \
-    --max-cn-distance 1.8 \
-    --quiet; then
+  check_cmd=(
+    python3 "$BACKBONE_CHECK_SCRIPT"
+    --pdb "$INPUT_PDB"
+    --chain "$PEPTIDE_CHAIN"
+    --cyclic
+    --max-cn-distance 1.8
+    --quiet
+  )
+  if [[ "$INCLUDE_HETATM_BACKBONE_CHECK" -eq 1 ]]; then
+    check_cmd+=(--include-hetatm)
+  fi
+  if ! "${check_cmd[@]}"; then
     echo "Backbone continuity preflight failed; refusing to run Rosetta batch." >&2
     echo "Use --skip-backbone-check only if you intentionally want to run on a broken scaffold." >&2
     exit 1
@@ -153,6 +175,8 @@ input_pdb=$INPUT_PDB
 xml_file=$XML_FILE
 rosetta_bin=$ROSETTA_BIN
 rosetta_db=$ROSETTA_DB
+peptide_chain=$PEPTIDE_CHAIN
+include_hetatm_backbone_check=$INCLUDE_HETATM_BACKBONE_CHECK
 parallel=$PARALLEL
 nstruct=$NSTRUCT
 start_time=$(date -Iseconds)

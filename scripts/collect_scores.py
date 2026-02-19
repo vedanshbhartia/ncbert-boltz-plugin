@@ -33,11 +33,11 @@ def read_status_env(path: Path) -> dict[str, str]:
     return data
 
 
-def parse_scorefile(path: Path) -> tuple[float | None, str | None]:
+def parse_best_score_terms(path: Path) -> tuple[dict[str, float] | None, str | None]:
     if not path.exists():
         return None, None
     header: list[str] | None = None
-    best_total: float | None = None
+    best_terms: dict[str, float] | None = None
     best_desc: str | None = None
 
     with path.open("r", encoding="utf-8", errors="replace") as handle:
@@ -64,11 +64,19 @@ def parse_scorefile(path: Path) -> tuple[float | None, str | None]:
             except ValueError:
                 continue
             description = row.get("description")
-            if best_total is None or total < best_total:
-                best_total = total
+            if best_terms is None or total < best_terms.get("total_score", float("inf")):
+                numeric_terms: dict[str, float] = {}
+                for key, raw in row.items():
+                    if key == "description":
+                        continue
+                    try:
+                        numeric_terms[key] = float(raw)
+                    except ValueError:
+                        continue
+                best_terms = numeric_terms
                 best_desc = description
 
-    return best_total, best_desc
+    return best_terms, best_desc
 
 
 def tail_error_line(log_path: Path) -> str:
@@ -102,21 +110,34 @@ def resolve_model_path(job_dir: Path, description: str | None) -> str:
     return ""
 
 
-def parse_pose_total_from_pdb(pdb_path: Path) -> float | None:
+def parse_pose_terms_from_pdb(pdb_path: Path) -> dict[str, float] | None:
     if not pdb_path.exists():
         return None
-    pose_total: float | None = None
+    header_terms: list[str] | None = None
     with pdb_path.open("r", encoding="utf-8", errors="replace") as handle:
         for line in handle:
-            if line.startswith("pose "):
-                parts = line.split()
-                if len(parts) >= 2:
+            stripped = line.strip()
+            if stripped.startswith("label "):
+                parts = stripped.split()
+                if len(parts) > 1:
+                    header_terms = parts[1:]
+                continue
+            if stripped.startswith("pose "):
+                if not header_terms:
+                    continue
+                values = stripped.split()[1:]
+                if len(values) != len(header_terms):
+                    continue
+                out: dict[str, float] = {}
+                for term, raw in zip(header_terms, values):
+                    key = "total_score" if term == "total" else term
                     try:
-                        pose_total = float(parts[-1])
+                        out[key] = float(raw)
                     except ValueError:
-                        pass
-                break
-    return pose_total
+                        continue
+                if out:
+                    return out
+    return None
 
 
 def main() -> int:
@@ -127,6 +148,7 @@ def main() -> int:
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     rows_out: list[dict[str, str]] = []
+    score_term_columns: set[str] = set()
     success = 0
     failed = 0
 
@@ -142,10 +164,16 @@ def main() -> int:
             status_data = read_status_env(status_file)
             raw_exit = status_data.get("exit_code", "")
             exit_code = int(raw_exit) if raw_exit.isdigit() else None
-            total_score, description = parse_scorefile(score_file)
+            score_terms, description = parse_best_score_terms(score_file)
             model_path = resolve_model_path(job_dir, description)
-            if total_score is None and model_path:
-                total_score = parse_pose_total_from_pdb(Path(model_path))
+            pose_terms = parse_pose_terms_from_pdb(Path(model_path)) if model_path else None
+
+            combined_terms: dict[str, float] = {}
+            if pose_terms:
+                combined_terms.update(pose_terms)
+            if score_terms:
+                combined_terms.update(score_terms)
+            total_score = combined_terms.get("total_score")
 
             status = "success" if (exit_code == 0 and model_path) else "failed"
             if status == "success":
@@ -157,36 +185,43 @@ def main() -> int:
             if status == "failed" and not error_msg:
                 error_msg = tail_error_line(log_file)
 
-            rows_out.append(
-                {
-                    "job_id": job_id,
-                    "source_file": row["source_file"],
-                    "line_no": row["line_no"],
-                    "pepseq": row["pepseq"],
-                    "status": status,
-                    "total_score": "" if total_score is None else f"{total_score:.6f}",
-                    "model_path": model_path,
-                    "scorefile_path": str(score_file),
-                    "log_path": str(log_file),
-                    "error": error_msg,
-                }
-            )
+            out_row = {
+                "job_id": job_id,
+                "source_file": row["source_file"],
+                "line_no": row["line_no"],
+                "pepseq": row["pepseq"],
+                "status": status,
+                "total_score": "" if total_score is None else f"{total_score:.6f}",
+                "model_path": model_path,
+                "scorefile_path": str(score_file),
+                "log_path": str(log_file),
+                "error": error_msg,
+            }
+            for term, value in combined_terms.items():
+                if term == "total_score":
+                    continue
+                col = f"score_{term}"
+                out_row[col] = f"{value:.6f}"
+                score_term_columns.add(col)
+            rows_out.append(out_row)
 
+    base_fields = [
+        "job_id",
+        "source_file",
+        "line_no",
+        "pepseq",
+        "status",
+        "total_score",
+        "model_path",
+        "scorefile_path",
+        "log_path",
+        "error",
+    ]
+    score_fields = sorted(score_term_columns)
     with out_path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(
             handle,
-            fieldnames=[
-                "job_id",
-                "source_file",
-                "line_no",
-                "pepseq",
-                "status",
-                "total_score",
-                "model_path",
-                "scorefile_path",
-                "log_path",
-                "error",
-            ],
+            fieldnames=base_fields + score_fields,
             delimiter="\t",
         )
         writer.writeheader()

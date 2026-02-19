@@ -44,15 +44,24 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print only failing pairs and summary",
     )
+    parser.add_argument(
+        "--include-hetatm",
+        action="store_true",
+        help="Include HETATM records in addition to ATOM when building the chain",
+    )
     return parser.parse_args()
 
 
-def parse_chain_residues(pdb_path: Path, chain_id: str) -> list[ResidueRecord]:
+def parse_chain_residues(
+    pdb_path: Path, chain_id: str, include_hetatm: bool
+) -> list[ResidueRecord]:
     residues: list[ResidueRecord] = []
     idx_by_key: dict[tuple[int, str], int] = {}
 
     for line in pdb_path.read_text(encoding="utf-8").splitlines():
-        if not line.startswith("ATOM"):
+        if not line.startswith("ATOM") and not (
+            include_hetatm and line.startswith("HETATM")
+        ):
             continue
         if len(line) < 54:
             continue
@@ -100,9 +109,12 @@ def main() -> int:
     if not pdb_path.is_file():
         raise FileNotFoundError(f"PDB not found: {pdb_path}")
 
-    residues = parse_chain_residues(pdb_path, args.chain)
+    residues = parse_chain_residues(pdb_path, args.chain, args.include_hetatm)
     if not residues:
-        raise ValueError(f"No ATOM records found for chain {args.chain} in {pdb_path}")
+        record_types = "ATOM/HETATM" if args.include_hetatm else "ATOM"
+        raise ValueError(
+            f"No {record_types} records found for chain {args.chain} in {pdb_path}"
+        )
     if len(residues) < 2:
         raise ValueError(f"Need at least 2 residues in chain {args.chain} to check continuity")
 

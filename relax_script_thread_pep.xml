@@ -21,15 +21,15 @@
 	<!-- which are used when setting up other Rosetta modules. -->
 	<RESIDUE_SELECTORS>
 		<!-- Select MMP8 and peptide residues. -->
-		<Chain name="select_MMP8" chains="B" />
-		<Chain name="select_peptide" chains="A" />
+		<Chain name="select_MMP8" chains="A" />
+		<Chain name="select_peptide" chains="B" />
 		<Slice name="pep_first" selector="select_peptide" from="1" to="1" slice_mode="SPARSE"/>
-		<!-- This protocol expects an 18-residue trimmed chain A input. -->
+		<!-- This protocol expects an 18-residue peptide on chain B. -->
 		<Slice name="pep_last"  selector="select_peptide" from="18" to="18" slice_mode="SPARSE"/>
 		<!-- Retrieve the original select_near_peptide residue subset created by the "StoreResidueSubset" mover -->
 		<Neighborhood name="near_peptide_all" selector="select_peptide" distance="8.0" include_focus_in_subset="false"/>
 		<And name="select_near_peptide" selectors="select_MMP8,near_peptide_all"/>
-        <StoredResidueSubset name="get_original_near_peptide" subset_name="subset_near_peptide"/>
+		<StoredResidueSubset name="get_original_near_peptide" subset_name="subset_near_peptide"/>
 	</RESIDUE_SELECTORS>
 
 	<!-- The FILTERS section allows users to configure filters. -->
@@ -81,8 +81,8 @@
 		<!-- Store the MMP8 residue selection close to the peptide to avoid selection changes caused by peptide design -->
 		<StoreResidueSubset name="store_near_peptide" subset_name="subset_near_peptide" residue_selector="select_near_peptide" />
 
-		<!-- Thread a new peptide sequence onto chain A (starting at residue 1A). -->
-		<SimpleThreadingMover name="thread_peptide" start_position="1A" thread_sequence="%%pepseq%%" sequence_mode="oneletter" pack_neighbors="true" neighbor_dis="8.0" pack_rounds="1" />
+		<!-- Thread a new peptide sequence onto chain B (starting at residue 162B). -->
+		<SimpleThreadingMover name="thread_peptide" start_position="162B" thread_sequence="%%pepseq%%" sequence_mode="oneletter" pack_neighbors="true" neighbor_dis="8.0" pack_rounds="1" />
 
 		<FastRelax name="frlx" movemap_factory="frlx_mf" scorefxn="ref_hbond" repeats="3" disable_design="true" task_operations="extra_rotamer,include_current_rotamer" />
 	</MOVERS>
@@ -107,15 +107,17 @@
 		<Add mover="peptide_bond" />
 
 		<!-- Add filters to check for hydrogen bond requirements -->
-        <Add filter="oversat" />
+		<Add filter="oversat" />
 		<!-- <Add filter="min_internal_hbonds" /> -->
 		
 		<!-- Remove the cutpoint variants to compute correct omega angle scores at the cyclization site -->
-		<Add mover="remove_cutpoint_upper" />
-		<Add mover="remove_cutpoint_lower" />
+		<!-- <Add mover="remove_cutpoint_upper" />
+		<Add mover="remove_cutpoint_lower" /> -->
 
 		<!-- This mover is needed to correct the O and H atom positions at the cyclization site -->
 		<Add mover="peptide_bond" />
+		<!-- Re-minimize after final bond declaration to pull closure geometry into bonded range. -->
+		<Add mover="frlx" />
 
 		<!-- Measure shape complementarity and interface area -->
 		<Add filter="shape" />
