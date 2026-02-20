@@ -91,6 +91,7 @@
 	<!-- defined above in linear sequence to define a protocol: -->
 	<PROTOCOLS>
 		<!-- Remove the termini labels and add cutpoint variants for cyclization -->
+		<Add mover="thread_peptide" />
 		<Add mover="remove_N_terminus" />
         <Add mover="remove_C_terminus" />
 		<Add mover="peptide_bond" />
@@ -100,13 +101,12 @@
 		<!-- Store the residue subset near the peptide, only those sidechains in the MMP8 protein will be allowed to move -->
 		<Add mover="store_near_peptide" />
 
-		<Add mover="thread_peptide" />
+		<!-- <Add mover="thread_peptide" /> -->
 
 		<!-- FastRelax -->
 		<Add mover="frlx" />
 		<Add mover="peptide_bond" />
 
-		<!-- Add filters to check for hydrogen bond requirements -->
 		<Add filter="oversat" />
 		<!-- <Add filter="min_internal_hbonds" /> -->
 		
@@ -116,7 +116,7 @@
 
 		<!-- This mover is needed to correct the O and H atom positions at the cyclization site -->
 		<Add mover="peptide_bond" />
-		<!-- Re-minimize after final bond declaration to pull closure geometry into bonded range. -->
+		<!-- Re-minimize to fix closure -->
 		<Add mover="frlx" />
 
 		<!-- Measure shape complementarity and interface area -->

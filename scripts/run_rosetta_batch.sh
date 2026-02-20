@@ -168,6 +168,9 @@ fi
 
 mkdir -p "$RUN_DIR"
 cp "$JOBS_TSV" "$RUN_DIR/jobs.tsv"
+# Snapshot exact run inputs for provenance/debugging.
+cp "$INPUT_PDB" "$RUN_DIR/input_scaffold.pdb"
+cp "$XML_FILE" "$RUN_DIR/protocol.xml"
 
 cat > "$RUN_DIR/run_config.txt" <<EOF
 jobs_tsv=$JOBS_TSV
