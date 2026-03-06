@@ -11,6 +11,7 @@ Usage:
     [--run-dir runs/rosetta_batch_YYYYmmdd_HHMMSS] \
     [--rosetta-bin /path/to/rosetta_scripts.static.linuxgccrelease] \
     [--rosetta-db /path/to/database] \
+    [--extra-res-fa-dir ncaa_params] \
     [--peptide-chain A] \
     [--include-hetatm-backbone-check] \
     [--parallel 8] \
@@ -38,6 +39,10 @@ NSTRUCT=1
 SKIP_BACKBONE_CHECK=0
 PEPTIDE_CHAIN="A"
 INCLUDE_HETATM_BACKBONE_CHECK=0
+EXTRA_RES_FA_DIR="ncaa_params"
+declare -a EXTRA_RES_FA_FILES=()
+declare -a EXTRA_RES_FA_SKIPPED=()
+declare -A DEFAULT_FA_STANDARD_NAMES=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -63,6 +68,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --rosetta-db)
       ROSETTA_DB="$2"
+      shift 2
+      ;;
+    --extra-res-fa-dir)
+      EXTRA_RES_FA_DIR="$2"
       shift 2
       ;;
     --parallel)
@@ -147,6 +156,41 @@ if [[ -z "$PEPTIDE_CHAIN" ]]; then
   echo "Invalid --peptide-chain value: must be non-empty." >&2
   exit 1
 fi
+
+residue_types_index="$ROSETTA_DB/chemical/residue_type_sets/fa_standard/residue_types.txt"
+residue_types_root="$ROSETTA_DB/chemical/residue_type_sets/fa_standard"
+if [[ -f "$residue_types_index" ]]; then
+  while IFS= read -r rel_path; do
+    rel_path="${rel_path%%#*}"
+    rel_path="${rel_path#"${rel_path%%[![:space:]]*}"}"
+    rel_path="${rel_path%"${rel_path##*[![:space:]]}"}"
+    if [[ -z "$rel_path" ]]; then
+      continue
+    fi
+    if [[ "$rel_path" != residue_types/*.params ]]; then
+      continue
+    fi
+    full_path="$residue_types_root/$rel_path"
+    if [[ ! -f "$full_path" ]]; then
+      continue
+    fi
+    res_name="$(awk '$1=="NAME"{print $2; exit}' "$full_path")"
+    if [[ -n "$res_name" ]]; then
+      DEFAULT_FA_STANDARD_NAMES["$res_name"]=1
+    fi
+  done < "$residue_types_index"
+fi
+
+if [[ -n "$EXTRA_RES_FA_DIR" && -d "$EXTRA_RES_FA_DIR" ]]; then
+  while IFS= read -r -d '' param_file; do
+    extra_name="$(awk '$1=="NAME"{print $2; exit}' "$param_file")"
+    if [[ -n "$extra_name" && -n "${DEFAULT_FA_STANDARD_NAMES[$extra_name]:-}" ]]; then
+      EXTRA_RES_FA_SKIPPED+=("$param_file:$extra_name")
+      continue
+    fi
+    EXTRA_RES_FA_FILES+=("$param_file")
+  done < <(find "$EXTRA_RES_FA_DIR" -maxdepth 1 -type f -name '*.params' -print0 | sort -z)
+fi
 if [[ "$SKIP_BACKBONE_CHECK" -eq 0 ]]; then
   check_cmd=(
     python3 "$BACKBONE_CHECK_SCRIPT"
@@ -182,8 +226,14 @@ peptide_chain=$PEPTIDE_CHAIN
 include_hetatm_backbone_check=$INCLUDE_HETATM_BACKBONE_CHECK
 parallel=$PARALLEL
 nstruct=$NSTRUCT
+extra_res_fa_dir=$EXTRA_RES_FA_DIR
+extra_res_fa_count=${#EXTRA_RES_FA_FILES[@]}
+extra_res_fa_skipped_count=${#EXTRA_RES_FA_SKIPPED[@]}
 start_time=$(date -Iseconds)
 EOF
+for skipped in "${EXTRA_RES_FA_SKIPPED[@]}"; do
+  echo "extra_res_fa_skipped=$skipped" >> "$RUN_DIR/run_config.txt"
+done
 
 run_one() {
   local job_id="$1"
@@ -236,6 +286,7 @@ EOF
     -parser:protocol "$XML_FILE" \
     -parser:script_vars "pepseq=$thread_seq" \
     -load_PDB_components \
+    "${EXTRA_RES_FA_FILES[@]:+-in:file:extra_res_fa}" "${EXTRA_RES_FA_FILES[@]}" \
     -nstruct "$NSTRUCT" \
     -overwrite \
     -out:path:all "$job_dir" \

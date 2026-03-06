@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Normalize bracketed peptide sequences for Rosetta one-letter threading.
 
-This utility preserves canonical one-letter inputs and converts bracketed
-three-letter residue tokens into Rosetta-safe one-letter thread strings.
+Normalization order for bracket tokens:
+1) explicit token-to-Rosetta-type aliases -> X[TYPE]
+2) CCD one-letter fallback -> canonical one-letter code
 """
 
 from __future__ import annotations
@@ -12,12 +13,28 @@ from functools import lru_cache
 from pathlib import Path
 
 
-# Preserve D-amino-acid stereochemistry for residues supported by this build.
 SUPPORTED_D_TOKEN_TO_ROSETTA = {
     "DIL": "DILE",
     "DLY": "DLYS",
     "DTY": "DTYR",
     "DTH": "DTHR",
+}
+
+TOKEN_ALIAS_TO_ROSETTA = {
+    "CRO": "CRO",
+    "GYS": "CRO",
+    "FTR": "B35",
+    "CR2": "CRO",
+    "HIC": "A06",
+    "MHS": "A82",
+    "3FG": "V03",
+    "NLE": "NLU",
+    "PIA": "CRO",
+    "HYP": "HPR",
+    "ABA": "ABA",
+    "AIB": "AIB",
+    "NEP": "HP2",
+    "SAR": "SAR",
 }
 
 
@@ -94,10 +111,15 @@ def normalize_peptide(pepseq: str, rosetta_db: str) -> str:
                 out.append(f"X[{SUPPORTED_D_TOKEN_TO_ROSETTA[residue]}]")
                 continue
 
+            mapped = TOKEN_ALIAS_TO_ROSETTA.get(residue)
+            if mapped is not None:
+                out.append(f"X[{mapped}]")
+                continue
+
             one_letter = lookup_one_letter_from_ccd(rosetta_db, residue)
             if one_letter is None:
                 raise ValueError(
-                    f"No one-letter mapping found for bracket token [{residue}]"
+                    f"No Rosetta alias or CCD one-letter mapping found for token [{residue}]"
                 )
             out.append(one_letter)
             continue

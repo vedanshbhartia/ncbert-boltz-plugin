@@ -1,5 +1,10 @@
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+EXTRA_RES_FA_DIR="${EXTRA_RES_FA_DIR:-ncaa_params}"
+
 run_pair() {
   local design_txt="$1"
   local backbone_pdb="$2"
@@ -24,6 +29,7 @@ run_pair() {
     --input-pdb "$backbone_pdb" \
     --xml relax_script_thread_pep.xml \
     --run-dir "$run_dir" \
+    --extra-res-fa-dir "$EXTRA_RES_FA_DIR" \
     --peptide-chain B \
     --include-hetatm-backbone-check \
     --parallel 8 \
