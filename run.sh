@@ -1,9 +1,10 @@
+#!/usr/bin/env bash
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-EXTRA_RES_FA_DIR="${EXTRA_RES_FA_DIR:-ncaa_params}"
+ROSETTA_CONFIG="${ROSETTA_CONFIG:-$SCRIPT_DIR/config/rosetta.env}"
 
 run_pair() {
   local design_txt="$1"
@@ -24,16 +25,22 @@ run_pair() {
     --include-hetatm \
     --max-cn-distance 1.8
 
-  scripts/run_rosetta_batch.sh \
-    --jobs "$jobs_tsv" \
-    --input-pdb "$backbone_pdb" \
-    --xml relax_script_thread_pep.xml \
-    --run-dir "$run_dir" \
-    --extra-res-fa-dir "$EXTRA_RES_FA_DIR" \
-    --peptide-chain B \
-    --include-hetatm-backbone-check \
-    --parallel 8 \
+  local -a batch_cmd=(
+    scripts/run_rosetta_batch.sh
+    --config "$ROSETTA_CONFIG"
+    --jobs "$jobs_tsv"
+    --input-pdb "$backbone_pdb"
+    --xml relax_script_thread_pep.xml
+    --run-dir "$run_dir"
+    --peptide-chain B
+    --include-hetatm-backbone-check
+    --parallel 8
     --nstruct 1
+  )
+  if [[ -n "${EXTRA_RES_FA_DIR:-}" ]]; then
+    batch_cmd+=(--extra-res-fa-dir "$EXTRA_RES_FA_DIR")
+  fi
+  "${batch_cmd[@]}"
 
   python3 scripts/collect_scores.py \
     --jobs "$jobs_tsv" \

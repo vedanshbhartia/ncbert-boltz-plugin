@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 set -u -o pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+DEFAULT_CONFIG_FILE="$REPO_ROOT/config/rosetta.env"
+
 usage() {
   cat <<'USAGE'
 Usage:
   scripts/run_rosetta_batch.sh \
+    [--config config/rosetta.env] \
     --jobs jobs.tsv \
     --input-pdb input.pdb \
     --xml relax_script_thread_pep.xml \
@@ -25,11 +30,13 @@ Required:
 USAGE
 }
 
-DEFAULT_ROOT="$HOME/Downloads/rosetta_binary_ubuntu_3.15_bundle/rosetta.binary.ubuntu.release-408/main"
-ROSETTA_BIN="$DEFAULT_ROOT/source/bin/rosetta_scripts.static.linuxgccrelease"
-ROSETTA_DB="$DEFAULT_ROOT/database"
-NORMALIZE_SCRIPT="scripts/normalize_thread_sequence.py"
-BACKBONE_CHECK_SCRIPT="scripts/check_backbone_continuity.py"
+DEFAULT_ROSETTA_ROOT="$HOME/Downloads/rosetta_binary_ubuntu_3.15_bundle/rosetta.binary.ubuntu.release-408/main"
+CONFIG_FILE="${ROSETTA_CONFIG:-$DEFAULT_CONFIG_FILE}"
+ROSETTA_ROOT="${ROSETTA_ROOT:-}"
+ROSETTA_BIN="${ROSETTA_BIN:-}"
+ROSETTA_DB="${ROSETTA_DB:-}"
+NORMALIZE_SCRIPT="$SCRIPT_DIR/normalize_thread_sequence.py"
+BACKBONE_CHECK_SCRIPT="$SCRIPT_DIR/check_backbone_continuity.py"
 JOBS_TSV=""
 INPUT_PDB=""
 XML_FILE=""
@@ -39,13 +46,94 @@ NSTRUCT=1
 SKIP_BACKBONE_CHECK=0
 PEPTIDE_CHAIN="A"
 INCLUDE_HETATM_BACKBONE_CHECK=0
-EXTRA_RES_FA_DIR="ncaa_params"
+EXTRA_RES_FA_DIR="${EXTRA_RES_FA_DIR:-}"
+ROSETTA_BIN_SET=0
+ROSETTA_DB_SET=0
+EXTRA_RES_FA_DIR_SET=0
 declare -a EXTRA_RES_FA_FILES=()
 declare -a EXTRA_RES_FA_SKIPPED=()
 declare -A DEFAULT_FA_STANDARD_NAMES=()
 
+trim_whitespace() {
+  local value="$1"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s' "$value"
+}
+
+expand_config_value() {
+  local value="$1"
+  value="${value//\$\{HOME\}/$HOME}"
+  value="${value//\$HOME/$HOME}"
+  value="${value//\$\{ROSETTA_ROOT\}/${ROSETTA_ROOT:-}}"
+  value="${value//\$ROSETTA_ROOT/${ROSETTA_ROOT:-}}"
+  printf '%s' "$value"
+}
+
+load_config_file() {
+  local path="$1"
+  local line key value
+
+  if [[ -z "$path" ]]; then
+    return 0
+  fi
+  if [[ ! -f "$path" ]]; then
+    echo "Config file not found: $path" >&2
+    exit 1
+  fi
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%%#*}"
+    line="$(trim_whitespace "$line")"
+    if [[ -z "$line" ]]; then
+      continue
+    fi
+    if [[ "$line" != *=* ]]; then
+      echo "Ignoring malformed config line: $line" >&2
+      continue
+    fi
+    key="$(trim_whitespace "${line%%=*}")"
+    value="$(trim_whitespace "${line#*=}")"
+
+    if [[ ${#value} -ge 2 && "${value:0:1}" == '"' && "${value: -1}" == '"' ]]; then
+      value="${value:1:${#value}-2}"
+    elif [[ ${#value} -ge 2 && "${value:0:1}" == "'" && "${value: -1}" == "'" ]]; then
+      value="${value:1:${#value}-2}"
+    fi
+    value="${value//\$\{HOME\}/$HOME}"
+    value="${value//\$HOME/$HOME}"
+
+    case "$key" in
+      ROSETTA_ROOT)
+        if [[ -z "$ROSETTA_ROOT" ]]; then
+          ROSETTA_ROOT="$value"
+        fi
+        ;;
+      ROSETTA_BIN)
+        if [[ $ROSETTA_BIN_SET -eq 0 && -z "$ROSETTA_BIN" ]]; then
+          ROSETTA_BIN="$value"
+        fi
+        ;;
+      ROSETTA_DB)
+        if [[ $ROSETTA_DB_SET -eq 0 && -z "$ROSETTA_DB" ]]; then
+          ROSETTA_DB="$value"
+        fi
+        ;;
+      EXTRA_RES_FA_DIR)
+        if [[ $EXTRA_RES_FA_DIR_SET -eq 0 && -z "$EXTRA_RES_FA_DIR" ]]; then
+          EXTRA_RES_FA_DIR="$value"
+        fi
+        ;;
+    esac
+  done < "$path"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --config)
+      CONFIG_FILE="$2"
+      shift 2
+      ;;
     --jobs)
       JOBS_TSV="$2"
       shift 2
@@ -64,14 +152,17 @@ while [[ $# -gt 0 ]]; do
       ;;
     --rosetta-bin)
       ROSETTA_BIN="$2"
+      ROSETTA_BIN_SET=1
       shift 2
       ;;
     --rosetta-db)
       ROSETTA_DB="$2"
+      ROSETTA_DB_SET=1
       shift 2
       ;;
     --extra-res-fa-dir)
       EXTRA_RES_FA_DIR="$2"
+      EXTRA_RES_FA_DIR_SET=1
       shift 2
       ;;
     --parallel)
@@ -105,6 +196,33 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ "$CONFIG_FILE" != /* ]]; then
+  CONFIG_FILE="$REPO_ROOT/$CONFIG_FILE"
+fi
+
+load_config_file "$CONFIG_FILE"
+
+if [[ -z "$ROSETTA_ROOT" ]]; then
+  ROSETTA_ROOT="$DEFAULT_ROSETTA_ROOT"
+fi
+if [[ $ROSETTA_BIN_SET -eq 0 && -z "$ROSETTA_BIN" ]]; then
+  ROSETTA_BIN="$ROSETTA_ROOT/source/bin/rosetta_scripts.static.linuxgccrelease"
+fi
+if [[ $ROSETTA_DB_SET -eq 0 && -z "$ROSETTA_DB" ]]; then
+  ROSETTA_DB="$ROSETTA_ROOT/database"
+fi
+if [[ $EXTRA_RES_FA_DIR_SET -eq 0 && -z "$EXTRA_RES_FA_DIR" ]]; then
+  EXTRA_RES_FA_DIR="ncaa_params"
+fi
+
+ROSETTA_BIN="$(expand_config_value "$ROSETTA_BIN")"
+ROSETTA_DB="$(expand_config_value "$ROSETTA_DB")"
+EXTRA_RES_FA_DIR="$(expand_config_value "$EXTRA_RES_FA_DIR")"
+
+if [[ -n "$EXTRA_RES_FA_DIR" && "$EXTRA_RES_FA_DIR" != /* ]]; then
+  EXTRA_RES_FA_DIR="$REPO_ROOT/$EXTRA_RES_FA_DIR"
+fi
 
 if [[ -z "$JOBS_TSV" || -z "$INPUT_PDB" || -z "$XML_FILE" ]]; then
   echo "Missing required arguments." >&2
@@ -217,6 +335,8 @@ cp "$INPUT_PDB" "$RUN_DIR/input_scaffold.pdb"
 cp "$XML_FILE" "$RUN_DIR/protocol.xml"
 
 cat > "$RUN_DIR/run_config.txt" <<EOF
+config_file=$CONFIG_FILE
+rosetta_root=$ROSETTA_ROOT
 jobs_tsv=$JOBS_TSV
 input_pdb=$INPUT_PDB
 xml_file=$XML_FILE
