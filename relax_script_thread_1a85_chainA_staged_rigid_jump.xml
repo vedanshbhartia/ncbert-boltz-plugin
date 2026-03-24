@@ -1,0 +1,86 @@
+<ROSETTASCRIPTS>
+	<SCOREFXNS>
+		<ScoreFunction name="ref" weights="ref2015" />
+		<ScoreFunction name="ref_hbond" weights="ref2015" >
+			<Reweight scoretype="hbond_lr_bb" weight="6.0" />
+			<Reweight scoretype="hbond_sr_bb" weight="6.0" />
+			<Reweight scoretype="chainbreak" weight="100.0" />
+            <Reweight scoretype="omega" weight="2.0" />
+			<Reweight scoretype="voids_penalty" weight="0.01" />
+		</ScoreFunction>
+	</SCOREFXNS>
+
+	<PACKER_PALETTES>
+		<CustomBaseTypePackerPalette name="design_palette" additional_residue_types="DALA,DASP,DGLU,DPHE,DHIS,DILE,DLYS,DLEU,DASN,DPRO,DGLN,DARG,DSER,DTHR,DVAL,DTRP,DTYR,NLU,DNLU,NVL,DNVL,A12,DA12,B27,DB27,B30,DB30,BB8,DBB8,ORN,DORN,DPP,DDPP,DAB,DDAB,HYP,DHYP,AIB" />
+	</PACKER_PALETTES>
+
+	<RESIDUE_SELECTORS>
+		<Chain name="select_peptide" chains="A" />
+		<Chain name="select_target" chains="B" />
+		<Slice name="pep_first" selector="select_peptide" from="1" to="1" slice_mode="SPARSE"/>
+		<Slice name="pep_last"  selector="select_peptide" from="18" to="18" slice_mode="SPARSE"/>
+		<Neighborhood name="near_peptide_all" selector="select_peptide" distance="8.0" include_focus_in_subset="false"/>
+		<And name="select_near_peptide" selectors="select_target,near_peptide_all"/>
+		<StoredResidueSubset name="get_original_near_peptide" subset_name="subset_near_peptide"/>
+	</RESIDUE_SELECTORS>
+
+	<FILTERS>
+		<OversaturatedHbondAcceptorFilter name="oversat" scorefxn="ref" max_allowed_oversaturated="0" consider_mainchain_only="true" donor_selector="select_peptide" acceptor_selector="select_peptide" />
+		<ShapeComplementarity name="shape" min_sc="0" min_interface="0" residue_selector1="select_target" residue_selector2="select_peptide" write_int_area="1" confidence="1" />
+	</FILTERS>
+
+	<TASKOPERATIONS>
+		<ExtraRotamersGeneric name="extra_rotamer" ex1="true" ex2="true" extrachi_cutoff="0" />
+		<IncludeCurrent name="include_current_rotamer" />
+	</TASKOPERATIONS>
+
+	<MOVE_MAP_FACTORIES>
+		<!-- First stage keeps the peptide internally rigid and only allows rigid-body motion. -->
+		<MoveMapFactory name="frlx_fixed_mf" bb="false" chi="false" jumps="true">
+			<Chi residue_selector="select_peptide" enable="true" />
+			<Chi residue_selector="get_original_near_peptide" enable="true" />
+		</MoveMapFactory>
+		<!-- Second stage restores peptide backbone motion while keeping jumps enabled. -->
+		<MoveMapFactory name="frlx_move_mf" bb="false" chi="false" jumps="true">
+			<Backbone residue_selector="select_peptide" enable="true" />
+			<Chi residue_selector="select_peptide" enable="true" />
+			<Chi residue_selector="get_original_near_peptide" enable="true" />
+		</MoveMapFactory>
+	</MOVE_MAP_FACTORIES>
+
+	<MOVERS>
+		<DeclareBond name="peptide_bond" res1_selector="pep_last" atom1="C" res2_selector="pep_first" atom2="N" add_termini="true" />
+		<ModifyVariantType name="remove_N_terminus" residue_selector="pep_first" remove_type="LOWER_TERMINUS_VARIANT" />
+        <ModifyVariantType name="remove_C_terminus" residue_selector="pep_last" remove_type="UPPER_TERMINUS_VARIANT" />
+        <ModifyVariantType name="pep_cutpoint_upper" residue_selector="pep_first" add_type="CUTPOINT_UPPER" />
+        <ModifyVariantType name="pep_cutpoint_lower" residue_selector="pep_last" add_type="CUTPOINT_LOWER" />
+        <ModifyVariantType name="remove_cutpoint_upper" residue_selector="pep_first" remove_type="CUTPOINT_UPPER" />
+		<ModifyVariantType name="remove_cutpoint_lower" residue_selector="pep_last" remove_type="CUTPOINT_LOWER" />
+
+		<StoreResidueSubset name="store_near_peptide" subset_name="subset_near_peptide" residue_selector="select_near_peptide" />
+
+		<SimpleThreadingMover name="thread_peptide" start_position="1A" thread_sequence="%%pepseq%%" sequence_mode="oneletter" pack_neighbors="true" neighbor_dis="8.0" pack_rounds="1" />
+
+		<FastRelax name="frlx_fixed" movemap_factory="frlx_fixed_mf" scorefxn="ref_hbond" repeats="3" disable_design="true" task_operations="extra_rotamer,include_current_rotamer" />
+		<FastRelax name="frlx_move" movemap_factory="frlx_move_mf" scorefxn="ref_hbond" repeats="3" disable_design="true" task_operations="extra_rotamer,include_current_rotamer" />
+	</MOVERS>
+
+	<PROTOCOLS>
+		<Add mover="thread_peptide" />
+		<Add mover="remove_N_terminus" />
+        <Add mover="remove_C_terminus" />
+		<Add mover="peptide_bond" />
+		<Add mover="pep_cutpoint_upper" />
+		<Add mover="pep_cutpoint_lower" />
+		<Add mover="store_near_peptide" />
+		<Add mover="frlx_fixed" />
+		<Add mover="peptide_bond" />
+		<Add filter="oversat" />
+		<Add mover="peptide_bond" />
+		<Add mover="frlx_move" />
+		<Add filter="oversat" />
+		<Add filter="shape" />
+	</PROTOCOLS>
+
+	<OUTPUT scorefxn="ref_hbond" />
+</ROSETTASCRIPTS>
