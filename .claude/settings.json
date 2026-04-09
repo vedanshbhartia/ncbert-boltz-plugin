@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -n \"xml\\\\|relax\\\\|manifest\\\\|batch\\\\|1a85\\\\|pep\\\\|sa474935\" scripts/run_*.sh)",
+      "Bash(grep -n \"xml\\\\|relax_script\" scripts/run_*.sh scripts/../run.sh)"
+    ]
+  }
+}
