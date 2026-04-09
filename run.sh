@@ -4,48 +4,56 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-LIMIT="${LIMIT:-6}"
-PARALLEL="${PARALLEL:-3}"
-NSTRUCT="${NSTRUCT:-1}"
-RUN_TAG="${RUN_TAG:-sa474935_$(date +%Y%m%d_%H%M%S)}"
-RUN_DIR="${RUN_DIR:-runs/$RUN_TAG}"
 ROSETTA_CONFIG="${ROSETTA_CONFIG:-$SCRIPT_DIR/config/rosetta.env}"
-SCAFFOLD_PDB="${SCAFFOLD_PDB:-$SCRIPT_DIR/SA474935_cand1_backbone.pdb}"
-JOBS_TSV="$RUN_DIR/jobs.tsv"
-SELECTED_TSV="$RUN_DIR/selected.tsv"
 
-mkdir -p "$RUN_DIR"
+run_pair() {
+  local design_txt="$1"
+  local backbone_pdb="$2"
+  local run_tag="$3"
+  local jobs_tsv="runs/jobs_${run_tag}.tsv"
+  local run_dir="runs/full_run_${run_tag}"
 
-python3 scripts/build_1a85_target_manifest.py \
-  --design-dir design \
-  --out "$JOBS_TSV" \
-  --selected-out "$SELECTED_TSV" \
-  --limit "$LIMIT"
+  python3 scripts/build_job_manifest.py \
+    --inputs "$design_txt" \
+    --out "$jobs_tsv" \
+    --expected-length 18
 
-scripts/run_rosetta_batch_threadseq.sh \
-  --config "$ROSETTA_CONFIG" \
-  --jobs "$JOBS_TSV" \
-  --input-pdb "$SCAFFOLD_PDB" \
-  --xml relax_script_thread_pep_staged_rigid_jump.xml \
-  --run-dir "$RUN_DIR" \
-  --peptide-chain B \
-  --include-hetatm-backbone-check \
-  --parallel "$PARALLEL" \
-  --nstruct "$NSTRUCT"
+  python3 scripts/check_backbone_continuity.py \
+    --pdb "$backbone_pdb" \
+    --chain B \
+    --cyclic \
+    --include-hetatm \
+    --max-cn-distance 1.8
 
-python3 scripts/collect_scores.py \
-  --jobs "$JOBS_TSV" \
-  --run-dir "$RUN_DIR" \
-  --out "$RUN_DIR/summary.tsv"
+  local -a batch_cmd=(
+    scripts/run_rosetta_batch.sh
+    --config "$ROSETTA_CONFIG"
+    --jobs "$jobs_tsv"
+    --input-pdb "$backbone_pdb"
+    --xml relax_script_thread_pep.xml
+    --run-dir "$run_dir"
+    --peptide-chain B
+    --include-hetatm-backbone-check
+    --parallel 8
+    --nstruct 1
+  )
+  if [[ -n "${EXTRA_RES_FA_DIR:-}" ]]; then
+    batch_cmd+=(--extra-res-fa-dir "$EXTRA_RES_FA_DIR")
+  fi
+  "${batch_cmd[@]}"
 
-python3 scripts/geometry_check.py \
-  --root "$RUN_DIR" \
-  --chain B \
-  --exclude input_scaffold.pdb \
-  --summary-out "$RUN_DIR/geometry_summary.tsv" \
-  --issues-out "$RUN_DIR/geometry_issues.tsv"
+  python3 scripts/collect_scores.py \
+    --jobs "$jobs_tsv" \
+    --run-dir "$run_dir" \
+    --out "$run_dir/summary.tsv"
+}
 
-echo
-echo "Selected sequences: $SELECTED_TSV"
-echo "Summary:            $RUN_DIR/summary.tsv"
-echo "Geometry:           $RUN_DIR/geometry_summary.tsv"
+run_pair \
+  SA474935_cand1_backbone_design.txt \
+  SA474935_cand1_backbone.pdb \
+  SA474935_cand1
+
+run_pair \
+  SA2989311_cand2_backbone_design.txt \
+  SA2989311_cand2_backbone.pdb \
+  SA2989311_cand2
