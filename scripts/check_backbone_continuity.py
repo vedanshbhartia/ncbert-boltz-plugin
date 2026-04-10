@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Check peptide backbone continuity from PDB atom coordinates."""
 
-from __future__ import annotations
-
 import argparse
 import math
 from dataclasses import dataclass

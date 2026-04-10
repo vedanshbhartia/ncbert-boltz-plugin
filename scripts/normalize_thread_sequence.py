@@ -6,8 +6,6 @@ Normalization order for bracket tokens:
 2) CCD one-letter fallback -> canonical one-letter code
 """
 
-from __future__ import annotations
-
 import argparse
 from functools import lru_cache
 from pathlib import Path
@@ -136,4 +134,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    import sys
+    sys.exit(main())

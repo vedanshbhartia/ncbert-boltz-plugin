@@ -15,18 +15,18 @@
 	</PACKER_PALETTES>
 
 	<RESIDUE_SELECTORS>
-		<Chain name="select_peptide" chains="A" />
-		<Chain name="select_target" chains="B" />
+		<Chain name="select_MMP8" chains="A" />
+		<Chain name="select_peptide" chains="B" />
 		<Slice name="pep_first" selector="select_peptide" from="1" to="1" slice_mode="SPARSE"/>
 		<Slice name="pep_last"  selector="select_peptide" from="18" to="18" slice_mode="SPARSE"/>
 		<Neighborhood name="near_peptide_all" selector="select_peptide" distance="8.0" include_focus_in_subset="false"/>
-		<And name="select_near_peptide" selectors="select_target,near_peptide_all"/>
+		<And name="select_near_peptide" selectors="select_MMP8,near_peptide_all"/>
 		<StoredResidueSubset name="get_original_near_peptide" subset_name="subset_near_peptide"/>
 	</RESIDUE_SELECTORS>
 
 	<FILTERS>
 		<OversaturatedHbondAcceptorFilter name="oversat" scorefxn="ref" max_allowed_oversaturated="0" consider_mainchain_only="true" donor_selector="select_peptide" acceptor_selector="select_peptide" />
-		<ShapeComplementarity name="shape" min_sc="0" min_interface="0" residue_selector1="select_target" residue_selector2="select_peptide" write_int_area="1" confidence="1" />
+		<ShapeComplementarity name="shape" min_sc="0" min_interface="0" residue_selector1="select_MMP8" residue_selector2="select_peptide" write_int_area="1" confidence="1" />
 	</FILTERS>
 
 	<TASKOPERATIONS>
@@ -35,12 +35,10 @@
 	</TASKOPERATIONS>
 
 	<MOVE_MAP_FACTORIES>
-		<!-- First stage keeps the peptide internally rigid and only allows rigid-body motion. -->
 		<MoveMapFactory name="frlx_fixed_mf" bb="false" chi="false" jumps="true">
 			<Chi residue_selector="select_peptide" enable="true" />
 			<Chi residue_selector="get_original_near_peptide" enable="true" />
 		</MoveMapFactory>
-		<!-- Second stage restores peptide backbone motion while keeping jumps enabled. -->
 		<MoveMapFactory name="frlx_move_mf" bb="false" chi="false" jumps="true">
 			<Backbone residue_selector="select_peptide" enable="true" />
 			<Chi residue_selector="select_peptide" enable="true" />
@@ -54,19 +52,13 @@
         <ModifyVariantType name="remove_C_terminus" residue_selector="pep_last" remove_type="UPPER_TERMINUS_VARIANT" />
         <ModifyVariantType name="pep_cutpoint_upper" residue_selector="pep_first" add_type="CUTPOINT_UPPER" />
         <ModifyVariantType name="pep_cutpoint_lower" residue_selector="pep_last" add_type="CUTPOINT_LOWER" />
-        <ModifyVariantType name="remove_cutpoint_upper" residue_selector="pep_first" remove_type="CUTPOINT_UPPER" />
-		<ModifyVariantType name="remove_cutpoint_lower" residue_selector="pep_last" remove_type="CUTPOINT_LOWER" />
-
 		<StoreResidueSubset name="store_near_peptide" subset_name="subset_near_peptide" residue_selector="select_near_peptide" />
-
-		<SimpleThreadingMover name="thread_peptide" start_position="1A" thread_sequence="%%pepseq%%" sequence_mode="oneletter" pack_neighbors="true" neighbor_dis="8.0" pack_rounds="1" />
-
 		<FastRelax name="frlx_fixed" movemap_factory="frlx_fixed_mf" scorefxn="ref_hbond" repeats="3" disable_design="true" task_operations="extra_rotamer,include_current_rotamer" />
 		<FastRelax name="frlx_move" movemap_factory="frlx_move_mf" scorefxn="ref_hbond" repeats="3" disable_design="true" task_operations="extra_rotamer,include_current_rotamer" />
+		<InterfaceAnalyzerMover name="interface_analysis" interface="A_B" scorefxn="ref_hbond" pack_separated="true" pack_input="false" />
 	</MOVERS>
 
 	<PROTOCOLS>
-		<Add mover="thread_peptide" />
 		<Add mover="remove_N_terminus" />
         <Add mover="remove_C_terminus" />
 		<Add mover="peptide_bond" />
@@ -78,8 +70,8 @@
 		<Add filter="oversat" />
 		<Add mover="peptide_bond" />
 		<Add mover="frlx_move" />
-		<Add filter="oversat" />
 		<Add filter="shape" />
+		<Add mover="interface_analysis" />
 	</PROTOCOLS>
 
 	<OUTPUT scorefxn="ref_hbond" />

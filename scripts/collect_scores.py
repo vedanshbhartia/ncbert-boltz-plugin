@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Collect Rosetta job status and scores into a single TSV summary."""
 
-from __future__ import annotations
-
 import argparse
 import csv
 from collections import deque
@@ -18,6 +16,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Output summary TSV (default: <run-dir>/summary.tsv)",
     )
+    parser.add_argument(
+        "--reference-dg",
+        type=float,
+        default=None,
+        help="Reference dG_separated (REU) from backbone run; when provided adds a ddg column",
+    )
     return parser.parse_args()
 
 
@@ -25,7 +29,7 @@ def read_status_env(path: Path) -> dict[str, str]:
     data: dict[str, str] = {}
     if not path.exists():
         return data
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         if "=" not in line:
             continue
         key, value = line.split("=", 1)
@@ -114,6 +118,7 @@ def parse_pose_terms_from_pdb(pdb_path: Path) -> dict[str, float] | None:
     if not pdb_path.exists():
         return None
     header_terms: list[str] | None = None
+    out: dict[str, float] = {}
     with pdb_path.open("r", encoding="utf-8", errors="replace") as handle:
         for line in handle:
             stripped = line.strip()
@@ -128,16 +133,23 @@ def parse_pose_terms_from_pdb(pdb_path: Path) -> dict[str, float] | None:
                 values = stripped.split()[1:]
                 if len(values) != len(header_terms):
                     continue
-                out: dict[str, float] = {}
                 for term, raw in zip(header_terms, values):
                     key = "total_score" if term == "total" else term
                     try:
                         out[key] = float(raw)
                     except ValueError:
                         continue
-                if out:
-                    return out
-    return None
+                continue
+            # Bare "key value" lines written by InterfaceAnalyzerMover and similar
+            parts = stripped.split()
+            if len(parts) == 2:
+                key, raw = parts
+                if key[0].isalpha() or key[0] == "_":
+                    try:
+                        out[key] = float(raw)
+                    except ValueError:
+                        pass
+    return out if out else None
 
 
 def main() -> int:
@@ -145,6 +157,7 @@ def main() -> int:
     jobs_path = Path(args.jobs)
     run_dir = Path(args.run_dir)
     out_path = Path(args.out) if args.out else run_dir / "summary.tsv"
+    reference_dg: float | None = args.reference_dg
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     rows_out: list[dict[str, str]] = []
@@ -185,6 +198,13 @@ def main() -> int:
             if status == "failed" and not error_msg:
                 error_msg = tail_error_line(log_file)
 
+            dg_sep = combined_terms.get("dG_separated")
+            if dg_sep is None:
+                dg_sep = combined_terms.get("dg_separated")
+            ddg: float | None = None
+            if reference_dg is not None and dg_sep is not None:
+                ddg = dg_sep - reference_dg
+
             out_row = {
                 "job_id": job_id,
                 "source_file": row["source_file"],
@@ -192,6 +212,8 @@ def main() -> int:
                 "pepseq": row["pepseq"],
                 "status": status,
                 "total_score": "" if total_score is None else f"{total_score:.6f}",
+                "dg_separated": "" if dg_sep is None else f"{dg_sep:.6f}",
+                "ddg": "" if ddg is None else f"{ddg:.6f}",
                 "model_path": model_path,
                 "scorefile_path": str(score_file),
                 "log_path": str(log_file),
@@ -212,6 +234,8 @@ def main() -> int:
         "pepseq",
         "status",
         "total_score",
+        "dg_separated",
+        "ddg",
         "model_path",
         "scorefile_path",
         "log_path",
@@ -234,4 +258,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    import sys
+    sys.exit(main())

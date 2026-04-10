@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Select 1a85 design candidates and emit Rosetta thread-sequence jobs."""
 
-from __future__ import annotations
-
 import argparse
 import csv
 import json

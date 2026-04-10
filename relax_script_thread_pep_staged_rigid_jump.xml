@@ -87,6 +87,7 @@
 
 		<FastRelax name="frlx_fixed" movemap_factory="frlx_fixed_mf" scorefxn="ref_hbond" repeats="3" disable_design="true" task_operations="extra_rotamer,include_current_rotamer" />
 		<FastRelax name="frlx_move" movemap_factory="frlx_move_mf" scorefxn="ref_hbond" repeats="3" disable_design="true" task_operations="extra_rotamer,include_current_rotamer" />
+		<InterfaceAnalyzerMover name="interface_analysis" interface="A_B" scorefxn="ref_hbond" pack_separated="true" pack_input="false" />
 	</MOVERS>
 
 	<!-- The PROTOCOLS section is the section in which the user invokes the modules -->
@@ -116,6 +117,7 @@
 
 		<!-- Measure shape complementarity and interface area -->
 		<Add filter="shape" />
+		<Add mover="interface_analysis" />
 	</PROTOCOLS>
 	
 	<!-- We specify the scoring function that will be used to score the output structure. -->

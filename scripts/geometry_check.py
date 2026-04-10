@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Replicate the bond-geometry checks performed by geometry_check.m."""
 
-from __future__ import annotations
-
 import argparse
 import csv
 import math
@@ -133,10 +131,6 @@ def parse_chain_residues(pdb_path: Path, chain_id: str) -> list[Residue]:
     return residues
 
 
-def vector(a: tuple[float, float, float], b: tuple[float, float, float]) -> tuple[float, float, float]:
-    return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
-
-
 def dot(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 
@@ -147,10 +141,6 @@ def cross(a: tuple[float, float, float], b: tuple[float, float, float]) -> tuple
         a[2] * b[0] - a[0] * b[2],
         a[0] * b[1] - a[1] * b[0],
     )
-
-
-def norm(a: tuple[float, float, float]) -> float:
-    return math.sqrt(dot(a, a))
 
 
 def angle3(
