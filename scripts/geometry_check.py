@@ -131,8 +131,16 @@ def parse_chain_residues(pdb_path: Path, chain_id: str) -> list[Residue]:
     return residues
 
 
+def vector(a: tuple[float, float, float], b: tuple[float, float, float]) -> tuple[float, float, float]:
+    return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
+
+
 def dot(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+
+def norm(a: tuple[float, float, float]) -> float:
+    return math.sqrt(dot(a, a))
 
 
 def cross(a: tuple[float, float, float], b: tuple[float, float, float]) -> tuple[float, float, float]:
