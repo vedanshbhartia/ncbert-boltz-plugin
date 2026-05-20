@@ -11,7 +11,7 @@ Usage:
   scripts/run_rosetta_batch_threadseq.sh \
     [--config config/rosetta.env] \
     --jobs jobs.tsv \
-    --input-pdb input.pdb \
+    [--input-pdb input.pdb] \
     --xml relax_script.xml \
     [--run-dir runs/rosetta_batch_YYYYmmdd_HHMMSS] \
     [--rosetta-bin /path/to/rosetta_scripts.static.linuxgccrelease] \
@@ -24,9 +24,15 @@ Usage:
     [--skip-backbone-check]
 
 Required:
-  --jobs         Job manifest TSV (job_id, source_file, line_no, pepseq)
-  --input-pdb    Input scaffold PDB
+  --jobs         Job manifest TSV (job_id, source_file, line_no, pepseq[, input_pdb])
   --xml          RosettaScripts XML protocol
+
+Optional:
+  --input-pdb    Fallback scaffold PDB used when a job row has no input_pdb column.
+
+If the jobs TSV contains a 5th input_pdb column, each job uses its per-row
+scaffold; --input-pdb is only used when that column is empty. At least one of
+the two must resolve to a real PDB for every job.
 
 This variant expects pepseq to already contain the final Rosetta
 thread_sequence string (for example AX[AIB]P...).
@@ -226,7 +232,7 @@ if [[ -n "$EXTRA_RES_FA_DIR" && "$EXTRA_RES_FA_DIR" != /* ]]; then
   EXTRA_RES_FA_DIR="$REPO_ROOT/$EXTRA_RES_FA_DIR"
 fi
 
-if [[ -z "$JOBS_TSV" || -z "$INPUT_PDB" || -z "$XML_FILE" ]]; then
+if [[ -z "$JOBS_TSV" || -z "$XML_FILE" ]]; then
   echo "Missing required arguments." >&2
   usage
   exit 1
@@ -240,7 +246,7 @@ if [[ ! -f "$JOBS_TSV" ]]; then
   echo "Jobs TSV not found: $JOBS_TSV" >&2
   exit 1
 fi
-if [[ ! -f "$INPUT_PDB" ]]; then
+if [[ -n "$INPUT_PDB" && ! -f "$INPUT_PDB" ]]; then
   echo "Input PDB not found: $INPUT_PDB" >&2
   exit 1
 fi
@@ -308,30 +314,68 @@ if [[ -n "$EXTRA_RES_FA_DIR" && -d "$EXTRA_RES_FA_DIR" ]]; then
   done < <(find "$EXTRA_RES_FA_DIR" -maxdepth 1 -type f -name '*.params' -print0 | sort -z)
 fi
 
-if [[ "$SKIP_BACKBONE_CHECK" -eq 0 ]]; then
-  check_cmd=(
-    python3 "$BACKBONE_CHECK_SCRIPT"
-    --pdb "$INPUT_PDB"
-    --chain "$PEPTIDE_CHAIN"
-    --cyclic
-    --max-cn-distance 1.8
-    --quiet
-  )
-  if [[ "$INCLUDE_HETATM_BACKBONE_CHECK" -eq 1 ]]; then
-    check_cmd+=(--include-hetatm)
+declare -A UNIQUE_INPUT_PDBS=()
+declare -a JOB_INPUT_PDB_LIST=()
+HEADER_LINE=""
+while IFS= read -r raw_line || [[ -n "$raw_line" ]]; do
+  if [[ -z "$raw_line" ]]; then
+    continue
   fi
-  if ! "${check_cmd[@]}"; then
-    echo "Backbone continuity preflight failed; refusing to run Rosetta batch." >&2
-    echo "Use --skip-backbone-check only if you intentionally want to run on a broken scaffold." >&2
+  IFS=$'\t' read -r f1 f2 f3 f4 f5 <<<"$raw_line"
+  f1="${f1%$'\r'}"
+  f5="${f5%$'\r'}"
+  if [[ -z "$HEADER_LINE" ]]; then
+    HEADER_LINE="$raw_line"
+    if [[ "$f1" == "job_id" ]]; then
+      continue
+    fi
+  fi
+  if [[ -z "$f1" ]]; then
+    continue
+  fi
+  job_pdb="$f5"
+  if [[ -z "$job_pdb" ]]; then
+    job_pdb="$INPUT_PDB"
+  fi
+  if [[ -z "$job_pdb" ]]; then
+    echo "Job $f1 has no input_pdb column and no --input-pdb fallback was provided." >&2
     exit 1
   fi
+  if [[ ! -f "$job_pdb" ]]; then
+    echo "Input PDB for job $f1 not found: $job_pdb" >&2
+    exit 1
+  fi
+  JOB_INPUT_PDB_LIST+=("$f1=$job_pdb")
+  UNIQUE_INPUT_PDBS["$job_pdb"]=1
+done < "$JOBS_TSV"
+
+if [[ "$SKIP_BACKBONE_CHECK" -eq 0 ]]; then
+  for pdb_path in "${!UNIQUE_INPUT_PDBS[@]}"; do
+    check_cmd=(
+      python3 "$BACKBONE_CHECK_SCRIPT"
+      --pdb "$pdb_path"
+      --chain "$PEPTIDE_CHAIN"
+      --cyclic
+      --max-cn-distance 1.8
+      --quiet
+    )
+    if [[ "$INCLUDE_HETATM_BACKBONE_CHECK" -eq 1 ]]; then
+      check_cmd+=(--include-hetatm)
+    fi
+    if ! "${check_cmd[@]}"; then
+      echo "Backbone continuity preflight failed for $pdb_path; refusing to run Rosetta batch." >&2
+      echo "Use --skip-backbone-check only if you intentionally want to run on a broken scaffold." >&2
+      exit 1
+    fi
+  done
 fi
 
 mkdir -p "$RUN_DIR"
 if [[ "$(realpath "$JOBS_TSV")" != "$(realpath -m "$RUN_DIR/jobs.tsv")" ]]; then
   cp "$JOBS_TSV" "$RUN_DIR/jobs.tsv"
 fi
-if [[ "$(realpath "$INPUT_PDB")" != "$(realpath -m "$RUN_DIR/input_scaffold.pdb")" ]]; then
+if [[ -n "$INPUT_PDB" ]] && \
+   [[ "$(realpath "$INPUT_PDB")" != "$(realpath -m "$RUN_DIR/input_scaffold.pdb")" ]]; then
   cp "$INPUT_PDB" "$RUN_DIR/input_scaffold.pdb"
 fi
 if [[ "$(realpath "$XML_FILE")" != "$(realpath -m "$RUN_DIR/protocol.xml")" ]]; then
@@ -353,8 +397,12 @@ nstruct=$NSTRUCT
 extra_res_fa_dir=$EXTRA_RES_FA_DIR
 extra_res_fa_count=${#EXTRA_RES_FA_FILES[@]}
 extra_res_fa_skipped_count=${#EXTRA_RES_FA_SKIPPED[@]}
+unique_job_input_pdbs=${#UNIQUE_INPUT_PDBS[@]}
 start_time=$(date -Iseconds)
 EOF
+for pdb_path in "${!UNIQUE_INPUT_PDBS[@]}"; do
+  echo "job_input_pdb=$pdb_path" >> "$RUN_DIR/run_config.txt"
+done
 for skipped in "${EXTRA_RES_FA_SKIPPED[@]}"; do
   echo "extra_res_fa_skipped=$skipped" >> "$RUN_DIR/run_config.txt"
 done
@@ -364,22 +412,30 @@ run_one() {
   local source_file="$2"
   local line_no="$3"
   local pepseq="$4"
+  local job_input_pdb="$5"
   local job_dir="$RUN_DIR/$job_id"
   local log_file="$job_dir/rosetta.log"
   local score_file="$job_dir/score.sc"
   local status_file="$job_dir/status.env"
   local start_time end_time exit_code error_line model_file model_desc pose_total
 
+  if [[ -z "$job_input_pdb" ]]; then
+    job_input_pdb="$INPUT_PDB"
+  fi
+
   mkdir -p "$job_dir"
   find "$job_dir" -maxdepth 1 -type f \
     \( -name '*.pdb' -o -name '*.cif' -o -name '*.sc' -o -name 'status.env' -o -name 'rosetta.log' \) \
     -delete
+  if [[ "$(realpath "$job_input_pdb")" != "$(realpath -m "$job_dir/input_scaffold.pdb")" ]]; then
+    cp "$job_input_pdb" "$job_dir/input_scaffold.pdb"
+  fi
   start_time="$(date -Iseconds)"
   : > "$log_file"
 
   "$ROSETTA_BIN" \
     -database "$ROSETTA_DB" \
-    -s "$INPUT_PDB" \
+    -s "$job_input_pdb" \
     -parser:protocol "$XML_FILE" \
     -parser:script_vars "pepseq=$pepseq" \
     -load_PDB_components \
@@ -425,6 +481,7 @@ job_id=$job_id
 source_file=$source_file
 line_no=$line_no
 pepseq=$pepseq
+input_pdb=$job_input_pdb
 start_time=$start_time
 end_time=$end_time
 exit_code=$exit_code
@@ -437,7 +494,7 @@ EOF
 running=0
 total_jobs=0
 
-while IFS=$'\t' read -r job_id source_file line_no pepseq; do
+while IFS=$'\t' read -r job_id source_file line_no pepseq input_pdb_col; do
   if [[ "$job_id" == "job_id" || -z "$job_id" ]]; then
     continue
   fi
@@ -445,8 +502,9 @@ while IFS=$'\t' read -r job_id source_file line_no pepseq; do
   source_file="${source_file%$'\r'}"
   line_no="${line_no%$'\r'}"
   pepseq="${pepseq%$'\r'}"
+  input_pdb_col="${input_pdb_col%$'\r'}"
 
-  run_one "$job_id" "$source_file" "$line_no" "$pepseq" &
+  run_one "$job_id" "$source_file" "$line_no" "$pepseq" "$input_pdb_col" &
   running=$((running + 1))
   total_jobs=$((total_jobs + 1))
 

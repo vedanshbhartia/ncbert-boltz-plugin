@@ -11,10 +11,12 @@ ROSETTA_CRASH.log
 # not needed for run.sh
 archive/
 design/
-scripts/build_job_manifest.py
 relax_script_thread_1a85_chainA_staged_rigid_jump.xml
-SA2989311_cand2_backbone.pdb
-SA474935_cand1_backbone_design.txt
-my.txt
-ncaa_not_working.txt
-requirements.txt
+
+# generated boltz outputs and inputs
+boltz/runs_peptide_only/
+boltz/*.zip
+boltz/boltz:peptide_bound_vs_alone_comparison.txt
+
+# generated perturbed backbones
+perturbed_backbones/

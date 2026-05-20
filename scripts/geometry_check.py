@@ -63,18 +63,21 @@ def parse_args() -> argparse.Namespace:
         "--exclude",
         action="append",
         default=[],
-        help="Basename to exclude from the scan. May be passed multiple times.",
+        help=(
+            "Path component to exclude from the scan (matches any directory or "
+            "file name along the path). May be passed multiple times."
+        ),
     )
     return parser.parse_args()
 
 
 def find_pdbs(root: Path, exclude_names: set[str]) -> list[Path]:
     if root.is_file():
-        return [] if root.name in exclude_names else [root]
+        return [] if exclude_names & set(root.parts) else [root]
     return sorted(
         path
         for path in root.rglob("*.pdb")
-        if path.is_file() and path.name not in exclude_names
+        if path.is_file() and not (exclude_names & set(path.parts))
     )
 
 

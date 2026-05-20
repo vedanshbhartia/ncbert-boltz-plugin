@@ -45,10 +45,9 @@ python3 scripts/build_1a85_target_manifest.py \
 scripts/run_rosetta_batch_threadseq.sh \
   --config "$ROSETTA_CONFIG" \
   --jobs "$JOBS_TSV" \
-  --input-pdb "$SCAFFOLD_PDB" \
-  --xml relax_script_thread_pep_staged_rigid_jump.xml \
+  --xml relax_script_thread_1a85_chainA_staged_rigid_jump.xml \
   --run-dir "$RUN_DIR" \
-  --peptide-chain B \
+  --peptide-chain A \
   --include-hetatm-backbone-check \
   --parallel "$PARALLEL" \
   --nstruct "$NSTRUCT"
@@ -65,8 +64,9 @@ python3 scripts/collect_scores.py "${COLLECT_ARGS[@]}"
 
 python3 scripts/geometry_check.py \
   --root "$RUN_DIR" \
-  --chain B \
+  --chain A \
   --exclude input_scaffold.pdb \
+  --exclude reference \
   --summary-out "$RUN_DIR/geometry_summary.tsv" \
   --issues-out "$RUN_DIR/geometry_issues.tsv"
 
