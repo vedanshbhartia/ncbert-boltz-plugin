@@ -321,9 +321,10 @@ while IFS= read -r raw_line || [[ -n "$raw_line" ]]; do
   if [[ -z "$raw_line" ]]; then
     continue
   fi
-  IFS=$'\t' read -r f1 f2 f3 f4 f5 <<<"$raw_line"
+  IFS=$'\t' read -r f1 f2 f3 f4 f5 f6 <<<"$raw_line"
   f1="${f1%$'\r'}"
   f5="${f5%$'\r'}"
+  f6="${f6%$'\r'}"
   if [[ -z "$HEADER_LINE" ]]; then
     HEADER_LINE="$raw_line"
     if [[ "$f1" == "job_id" ]]; then
@@ -413,6 +414,7 @@ run_one() {
   local line_no="$3"
   local pepseq="$4"
   local job_input_pdb="$5"
+  local extra_script_vars="${6:-}"
   local job_dir="$RUN_DIR/$job_id"
   local log_file="$job_dir/rosetta.log"
   local score_file="$job_dir/score.sc"
@@ -433,11 +435,18 @@ run_one() {
   start_time="$(date -Iseconds)"
   : > "$log_file"
 
+  local -a script_vars_args=("pepseq=$pepseq")
+  if [[ -n "$extra_script_vars" ]]; then
+    # extra_script_vars is a whitespace-separated list of key=value pairs.
+    # shellcheck disable=SC2206
+    local -a extra_kv=( $extra_script_vars )
+    script_vars_args+=("${extra_kv[@]}")
+  fi
   "$ROSETTA_BIN" \
     -database "$ROSETTA_DB" \
     -s "$job_input_pdb" \
     -parser:protocol "$XML_FILE" \
-    -parser:script_vars "pepseq=$pepseq" \
+    -parser:script_vars "${script_vars_args[@]}" \
     -load_PDB_components \
     "${EXTRA_RES_FA_FILES[@]:+-in:file:extra_res_fa}" "${EXTRA_RES_FA_FILES[@]}" \
     -nstruct "$NSTRUCT" \
@@ -482,6 +491,7 @@ source_file=$source_file
 line_no=$line_no
 pepseq=$pepseq
 input_pdb=$job_input_pdb
+extra_script_vars=$extra_script_vars
 start_time=$start_time
 end_time=$end_time
 exit_code=$exit_code
@@ -494,7 +504,7 @@ EOF
 running=0
 total_jobs=0
 
-while IFS=$'\t' read -r job_id source_file line_no pepseq input_pdb_col; do
+while IFS=$'\t' read -r job_id source_file line_no pepseq input_pdb_col extra_script_vars_col; do
   if [[ "$job_id" == "job_id" || -z "$job_id" ]]; then
     continue
   fi
@@ -503,8 +513,9 @@ while IFS=$'\t' read -r job_id source_file line_no pepseq input_pdb_col; do
   line_no="${line_no%$'\r'}"
   pepseq="${pepseq%$'\r'}"
   input_pdb_col="${input_pdb_col%$'\r'}"
+  extra_script_vars_col="${extra_script_vars_col%$'\r'}"
 
-  run_one "$job_id" "$source_file" "$line_no" "$pepseq" "$input_pdb_col" &
+  run_one "$job_id" "$source_file" "$line_no" "$pepseq" "$input_pdb_col" "$extra_script_vars_col" &
   running=$((running + 1))
   total_jobs=$((total_jobs + 1))
 
