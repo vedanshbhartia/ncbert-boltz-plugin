@@ -1,11 +1,13 @@
-# At least 2 proline residues.
-# These can be L- or D- (or mixed).
+# At least 1 proline-like residue.
+# These can be L- or D- (or mixed). This is the soft guidance that steers the
+# packer toward the target; the hard "at least 1" guarantee is the
+# min_proline_like ResidueCount gate in design_script.xml.
 PENALTY_DEFINITION
 TYPE PRO DPR AIB HYP DHY
-DELTA_START -2
-DELTA_END 1
-PENALTIES 100 50 0 0
-ABSOLUTE 2
+DELTA_START -1
+DELTA_END 0
+PENALTIES 50 0
+ABSOLUTE 1
 BEFORE_FUNCTION QUADRATIC
 AFTER_FUNCTION CONSTANT
 END_PENALTY_DEFINITION
